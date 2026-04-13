@@ -1,0 +1,75 @@
+# =============================================================================
+# FishTalk — .gitignore
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.Python
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# User settings (machine-specific)
+settings.json
+
+# Logs
+*.log
+logs/
+
+# Temp / generated audio files
+*.wav
+
+# Compiled executables (distribute via releases, not source)
+*.exe
+
+# =============================================================================
+# Large downloaded assets — auto-downloaded on first run, cannot go on GitHub
+# =============================================================================
+
+# Fish-Speech source + checkpoints (auto-downloaded: ~1.5 GB each)
+fish-speech/
+fish-speech-1.5/
+fish-speech-latest/
+
+# Kokoro ONNX model files (auto-downloaded, exceed GitHub 100 MB file limit)
+kokoro_models/**/*.onnx
+kokoro_models/**/*.bin
+
+# FFmpeg binaries (auto-downloaded: ~75 MB)
+bin/
+
+# Pip wheel/package cache
+packages/
+
+# =============================================================================
+# Voice profiles — user-generated, keep folder structure via .gitkeep
+# =============================================================================
+
+# Ignore voice profile content but keep the empty subdirectory placeholders
+voices/**/*.npz
+voices/**/*.wav
+voices/**/*.pth
+voices/**/*.pt
+voices/**/*.json
+
+# Keep the .gitkeep markers so the folders exist on a fresh clone
+!voices/**/.gitkeep
+
+# =============================================================================
+# IDE / OS noise
+# =============================================================================
+
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+.DS_Store
+desktop.ini

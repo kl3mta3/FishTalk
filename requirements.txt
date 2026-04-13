@@ -1,0 +1,46 @@
+# =============================================================
+# FishTalk — Pinned Dependencies
+# =============================================================
+# All versions are locked. The launcher installs these EXACT
+# versions into a local venv. Once installed, nothing changes.
+# =============================================================
+
+# --- GUI ---
+customtkinter==5.2.2
+tkinterdnd2==0.4.3
+
+# --- AI / ML ---
+# NOTE: torch + torchaudio are installed separately by the
+# launcher with the correct CUDA version for the user's GPU.
+# They are NOT listed here to avoid conflicts.
+faster-whisper==1.1.0
+
+# --- Audio ---
+pydub==0.25.1
+soundfile==0.13.1
+sounddevice==0.5.5
+
+# --- Document handling ---
+python-docx==1.2.0
+reportlab==4.4.10
+pdfplumber==0.11.9
+
+# --- System ---
+psutil==5.9.8
+numpy==1.26.4
+
+# --- Fish-Speech internal deps (pinned) ---
+hydra-core==1.3.2
+omegaconf==2.3.0
+pyrootutils==1.0.4
+loguru==0.7.3
+click==8.1.8
+tqdm==4.67.1
+tokenizers
+huggingface_hub==0.28.1
+transformers==4.40.1
+einops>=0.7.0
+einx==0.2.2
+descript-audio-codec>=1.0.0
+loralib>=0.1.2
+tiktoken>=0.8.0

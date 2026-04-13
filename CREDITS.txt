@@ -1,0 +1,100 @@
+================================================================================
+                            FishTalk — Credits & Licenses
+================================================================================
+
+FishTalk is a local-first desktop application for Text-to-Speech and
+Speech-to-Text. This software uses the following open-source libraries:
+
+--------------------------------------------------------------------------------
+  Fish-Speech (TTS Engine)
+  https://github.com/fishaudio/fish-speech
+  License: Apache License 2.0
+  Copyright (c) 2024 Fish Audio
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  faster-whisper (STT Engine)
+  https://github.com/SYSTRAN/faster-whisper
+  License: MIT License
+  Copyright (c) 2023 SYSTRAN
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  CustomTkinter (GUI Framework)
+  https://github.com/TomSchimansky/CustomTkinter
+  License: MIT License
+  Copyright (c) 2023 Tom Schimansky
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  tkinterdnd2 (Drag & Drop)
+  https://github.com/pmgagne/tkinterdnd2
+  License: MIT License
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  PyTorch (Machine Learning Backend)
+  https://github.com/pytorch/pytorch
+  License: BSD 3-Clause License
+  Copyright (c) Meta Platforms, Inc. and affiliates
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  pydub (Audio Processing)
+  https://github.com/jiaaro/pydub
+  License: MIT License
+  Copyright (c) 2011 James Robert
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  pdfplumber (PDF Reading)
+  https://github.com/jsvine/pdfplumber
+  License: MIT License
+  Copyright (c) 2015 Jeremy Singer-Vine
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  python-docx (DOCX Reading/Writing)
+  https://github.com/python-openxml/python-docx
+  License: MIT License
+  Copyright (c) 2013 Steve Canny
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  ReportLab (PDF Generation)
+  https://www.reportlab.com/
+  License: BSD License
+  Copyright (c) 2000-2024 ReportLab Inc.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  soundfile / libsndfile (Audio I/O)
+  https://github.com/bastibe/python-soundfile
+  License: BSD 3-Clause License
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  sounddevice (Audio Playback)
+  https://github.com/spatialaudio/python-sounddevice
+  License: MIT License
+  Copyright (c) 2015 Matthias Geier
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  psutil (System Monitoring)
+  https://github.com/giampaolo/psutil
+  License: BSD 3-Clause License
+  Copyright (c) 2009 Jay Loden, Dave Daeschler, Giampaolo Rodola
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+  NumPy (Numerical Computing)
+  https://numpy.org/
+  License: BSD 3-Clause License
+  Copyright (c) 2005-2024 NumPy Developers
+--------------------------------------------------------------------------------
+
+================================================================================
+This application is provided as-is for personal and educational use.
+All trademarks and copyrights belong to their respective owners.
+================================================================================
