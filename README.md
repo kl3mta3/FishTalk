@@ -1,7 +1,7 @@
 # FishTalk
 
 <p align="center">
-  <img src="images/Icon.png" alt="FishTalk Icon" width="300"/>
+  <img src="https://github.com/kl3mta3/SphereSSL/blob/master/Images/Icon.png" alt="FishTalk Icon" width="300"/>
 </p>
 
 <h1 align="center">FishTalk</h1>
@@ -55,9 +55,9 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 ## Screenshots
 
-![Main Interface](images/main-window.png)
-![Voice Lab](images/voice-lab.png)
-![Settings](images/settings.png)
+![Main Interface](Images/main-window.png)
+![Voice Lab](Images/voice-lab.png)
+![Settings](Images/settings.png)
 
 ---
 
