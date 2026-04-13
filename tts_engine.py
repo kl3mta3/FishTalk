@@ -129,7 +129,11 @@ class TTSEngine:
                 if fs_root not in sys.path:
                     sys.path.insert(0, fs_root)
 
-                from tools.llama.generate import load_model as load_llm_model
+                try:
+                    from tools.llama.generate import load_model as load_llm_model
+                except ImportError:
+                    # Fallback for Fish-Speech 1.5 path
+                    from fish_speech.models.text2semantic.inference import load_model as load_llm_model
 
                 logger.info("Loading LLM from: %s", self.checkpoint_path)
                 model, decode_fn = load_llm_model(
@@ -310,7 +314,11 @@ class TTSEngine:
             try:
                 import torch
                 import torchaudio
-                from tools.llama.generate import generate_long
+                try:
+                    from tools.llama.generate import generate_long
+                except ImportError:
+                    # Fallback for Fish-Speech 1.5 path
+                    from fish_speech.models.text2semantic.inference import generate_long
 
                 if on_progress:
                     on_progress("Preparing generation...", 0.1)
@@ -331,10 +339,10 @@ class TTSEngine:
                         audios = wav.to(self.device).unsqueeze(0)
                         audio_lengths = torch.tensor([audios.shape[2]], device=self.device, dtype=torch.long)
                         tokens = self._codec.encode(audios, audio_lengths)[0][0]
-                    prompt_tokens_list = [tokens.cpu()]
+                    prompt_tokens_list = [tokens.to(self.device)]
                     prompt_text_list = [prompt_text or ""]
                 elif reference_tokens is not None:
-                    prompt_tokens_list = [torch.from_numpy(reference_tokens)]
+                    prompt_tokens_list = [torch.from_numpy(reference_tokens).to(self.device)]
                     prompt_text_list = [prompt_text or ""]
 
                 if self._cancel_event.is_set():
@@ -410,15 +418,6 @@ class TTSEngine:
 
                 audio_np = audio.cpu().detach().float().numpy()
 
-                # Apply speed adjustment via resampling
-                if abs(speed - 1.0) > 0.01:
-                    sample_rate = self._codec.spec_transform.sample_rate
-                    new_rate = int(sample_rate / speed)
-                    audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)
-                    audio_tensor = torchaudio.functional.resample(
-                        audio_tensor, sample_rate, new_rate
-                    )
-                    audio_np = audio_tensor[0].numpy()
 
                 # Save output
                 if output_path is None:

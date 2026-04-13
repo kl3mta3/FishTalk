@@ -13,6 +13,8 @@ import sys
 import threading
 from typing import Callable, Optional
 
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
 logger = logging.getLogger("FishTalk.cuda_setup")
 
 
@@ -47,6 +49,7 @@ def _nvidia_smi_name() -> str:
             result = subprocess.run(
                 [smi, "--query-gpu=name", "--format=csv,noheader"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=CREATE_NO_WINDOW
             )
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip().split("\n")[0]
@@ -62,6 +65,7 @@ def _wmi_gpu_name() -> str:
             ["powershell", "-NoProfile", "-Command",
              "Get-WmiObject Win32_VideoController | Where-Object { $_.Name -like '*NVIDIA*' } | Select-Object -ExpandProperty Name -First 1"],
             capture_output=True, text=True, timeout=8,
+            creationflags=CREATE_NO_WINDOW
         )
         name = result.stdout.strip()
         if name:
@@ -113,6 +117,7 @@ def install_cuda_pytorch(
                     "--upgrade",
                 ],
                 capture_output=True, text=True, timeout=1800,
+                creationflags=CREATE_NO_WINDOW
             )
 
             if result.returncode != 0:
@@ -130,6 +135,7 @@ def install_cuda_pytorch(
                 [sys.executable, "-c",
                  "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"],
                 capture_output=True, text=True, timeout=30,
+                creationflags=CREATE_NO_WINDOW
             )
 
             if "CUDA: True" in verify.stdout:
@@ -186,6 +192,7 @@ def revert_to_cpu_pytorch(
                     "--upgrade",
                 ],
                 capture_output=True, text=True, timeout=600,
+                creationflags=CREATE_NO_WINDOW
             )
 
             if result.returncode == 0:

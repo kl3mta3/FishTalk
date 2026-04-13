@@ -106,7 +106,7 @@ class VoiceManager:
 
         Args:
             name:               Name for the voice profile.
-            reference_wav_path: Path to the 15–30 second reference WAV.
+            reference_wav_path: Path to the 30–180 second reference WAV.
             tts_engine:         Optional TTSEngine to pre-compute tokens.
             prompt_text:        Transcript of the reference audio.
 
@@ -130,12 +130,11 @@ class VoiceManager:
             # Automatically parses mp3, wav, flac, etc. and exports a clean wave.
             audio = AudioSegment.from_file(reference_wav_path)
             
-            # Prevent Out-Of-Memory GPU crashes! 
-            # Fish-Speech only needs 10-30s of audio. A 30 minute audio file
-            # would instantly crash any GPU. We cleanly trim it to the first 30s.
-            if len(audio) > 30000:
-                logger.info(f"Audio is {len(audio)/1000}s long. Trimming to first 30 seconds to prevent OOM.")
-                audio = audio[:30000]
+            # Fish-Speech supports up to 180 seconds for voice cloning.
+            # Warning: Very long audio clips require significantly more VRAM on the GPU!
+            if len(audio) > 180000:
+                logger.info(f"Audio is {len(audio)/1000}s long. Trimming to first 180 seconds.")
+                audio = audio[:180000]
             
             # Fish-Speech prefers standard sample rates, pydub will preserve it
             # but we force the format to "wav"

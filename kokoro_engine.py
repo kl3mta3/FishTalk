@@ -17,6 +17,8 @@ import tempfile
 import threading
 from typing import Callable, Optional
 
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
 logger = logging.getLogger("FishTalk.kokoro")
 
 # ---------------------------------------------------------------------------
@@ -109,6 +111,7 @@ def install_kokoro(
             result = subprocess.run(
                 [venv_pip, "install", "kokoro-onnx", "misaki[en]", "--upgrade", "--quiet"],
                 capture_output=True, text=True, timeout=600,
+                creationflags=CREATE_NO_WINDOW
             )
             if result.returncode != 0:
                 msg = result.stderr[-500:] if result.stderr else "Unknown error"

@@ -512,3 +512,27 @@ def get_ram_usage() -> dict:
         "system_used_gb": sys_mem.used / (1024 ** 3),
         "system_total_gb": sys_mem.total / (1024 ** 3),
     }
+
+def get_vram_usage() -> dict:
+    """
+    Return system-wide VRAM usage if a CUDA GPU is available.
+    
+    Returns array or None:
+      - used_gb: float — system-wide GPU VRAM used in GB
+      - total_gb: float — GPU VRAM total in GB
+      - percent: float — VRAM usage percentage
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            # torch.cuda.mem_get_info() returns (free, total) for the system
+            free, total = torch.cuda.mem_get_info()
+            used = total - free
+            return {
+                "used_gb": used / (1024**3),
+                "total_gb": total / (1024**3),
+                "percent": (used / total) * 100 if total > 0 else 0.0,
+            }
+    except Exception:
+        pass
+    return None

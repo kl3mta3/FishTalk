@@ -178,17 +178,16 @@ def validate_fish_speech_path(path: str) -> dict:
         result["message"] = "Directory does not exist."
         return result
 
-    # Check for key files/directories that exist in Fish-Speech v1.4.3
+    # Check for key directories
     checks = {
         "fish_speech_pkg": os.path.isdir(os.path.join(path, "fish_speech")),
-        "llama_generate":  os.path.isfile(
-            os.path.join(path, "tools", "llama", "generate.py")
-        ),
-        "vqgan_inference": os.path.isfile(
-            os.path.join(path, "tools", "vqgan", "inference.py")
-        ),
-        "tools_dir": os.path.isdir(os.path.join(path, "tools")),
     }
+
+    # Support either v1.4.3 or v1.5 file structure
+    has_1_4_logic = os.path.isfile(os.path.join(path, "tools", "llama", "generate.py"))
+    has_1_5_logic = os.path.isfile(os.path.join(path, "fish_speech", "models", "text2semantic", "inference.py"))
+    
+    checks["inference_engine (1.4 or 1.5)"] = has_1_4_logic or has_1_5_logic
 
     result["details"] = checks
     missing = [k for k, v in checks.items() if not v]

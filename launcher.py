@@ -76,7 +76,7 @@ class InstallerGUI(tk.Tk):
         ).pack(pady=(40, 5))
         
         tk.Label(
-            self, text="Local AI Voice Studio", font=("Segoe UI", 12),
+            self, text="TTS/STT Studio", font=("Segoe UI", 12),
             bg="#0f0f1a", fg="#9a9ab0"
         ).pack(pady=(0, 20))
         

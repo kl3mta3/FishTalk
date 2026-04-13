@@ -166,7 +166,7 @@ class SplashScreen:
 
         ctk.CTkLabel(
             frame,
-            text="Local AI Voice Studio",
+            text="TTS/STT Voice Studio",
             font=(FONT_FAMILY, 13),
             text_color="#9a9ab0",
         ).pack(pady=(0, 25))
@@ -195,7 +195,7 @@ class SplashScreen:
         # Version
         ctk.CTkLabel(
             frame,
-            text="v1.0.0",
+            text="v1.4.5",
             font=(FONT_FAMILY, 10),
             text_color="#3a3a5a",
         ).pack(side="bottom", pady=10)
@@ -282,7 +282,7 @@ class FishTalkApp:
         ctk.CTkLabel(splash_container, text="🐟", font=(FONT_FAMILY, 56)).pack(pady=(40, 5))
         ctk.CTkLabel(splash_container, text="FishTalk", font=(FONT_FAMILY, 32, "bold"),
                      text_color="#6c83f7").pack(pady=(0, 2))
-        ctk.CTkLabel(splash_container, text="Local AI Voice Studio",
+        ctk.CTkLabel(splash_container, text="TTS/STT Studio",
                      font=(FONT_FAMILY, 13), text_color="#9a9ab0").pack(pady=(0, 25))
 
         splash_progress = ctk.CTkProgressBar(
@@ -298,7 +298,7 @@ class FishTalkApp:
         )
         splash_status.pack(pady=(0, 20))
 
-        ctk.CTkLabel(splash_container, text="v1.0.0", font=(FONT_FAMILY, 10),
+        ctk.CTkLabel(splash_container, text="v1.4.5", font=(FONT_FAMILY, 10),
                      text_color="#3a3a5a").pack(side="bottom", pady=10)
 
         def update_splash(status, progress):
@@ -423,7 +423,7 @@ class FishTalkApp:
         main_root.withdraw()
         main_root.overrideredirect(False)
         main_root.attributes("-topmost", False)
-        main_root.title("FishTalk — Local AI Voice Studio")
+        main_root.title("FishTalk — TTS/STT Studio")
         main_root.geometry(self.settings.window_geometry)
         main_root.minsize(1024, 680)
         main_root.configure(fg_color=COLORS["bg_dark"])

@@ -16,12 +16,14 @@ from tkinter import filedialog, messagebox
 from typing import Optional
 
 import customtkinter as ctk
+import numpy as np
 
 from settings import Settings, detect_cuda, get_bundled_fish_speech_path, validate_fish_speech_path
 from cuda_setup import has_nvidia_gpu, get_nvidia_gpu_name, is_cuda_torch_installed, install_cuda_pytorch, revert_to_cpu_pytorch
 from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE, DEFAULT_VOICE_DISPLAY, install_kokoro, _is_kokoro_installed
 from utils import (
     get_ram_usage,
+    get_vram_usage,
     is_ffmpeg_available,
     read_file,
     export_mp3,
@@ -115,7 +117,7 @@ class FishTalkUI:
 
         subtitle = ctk.CTkLabel(
             header,
-            text="Local AI Voice Studio",
+            text="TTS/STT Studio",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         )
@@ -862,7 +864,7 @@ class FishTalkUI:
         notice_row = setting_row(main)
         ctk.CTkLabel(
             notice_row,
-            text="Note:CUDA is the best option — enabling it allows real-time playback with cloning models.",
+            text="Note:CUDA is the best option — enabling it allows much faster and quality results",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["warning"],
         ).pack(side="left", padx=15, pady=12)
@@ -988,9 +990,9 @@ class FishTalkUI:
         ).pack(side="left", padx=(0, 10), pady=12)
 
         engine_options = [
-            "Fish-Speech 1.4 — Smallest (Cloning)",
-            "Fish-Speech 1.5 — Best Quality (Cloning)",
-            "Kokoro — Fast CPU (Preset Voices)",
+            "Fish-Speech 1.4 — Medium W/Cloning (1-4Gb Ram)",
+            "Fish-Speech 1.5 — High W/Cloning (8+Gb Ram)",
+            "Kokoro — Fast(best) No Cloning (1-2Gb Ram)",
         ]
 
         # Determine current engine from settings.engine field
@@ -1039,6 +1041,23 @@ class FishTalkUI:
             text_color=COLORS["text_secondary"],
         )
         self.ram_label.pack(side="right", padx=15, pady=12)
+
+        # VRAM readout
+        vram_row = setting_row(main)
+        ctk.CTkLabel(
+            vram_row,
+            text="VRAM Usage",
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
+
+        self.vram_label = ctk.CTkLabel(
+            vram_row,
+            text="Calculating...",
+            font=(FONT_FAMILY, 12),
+            text_color=COLORS["text_secondary"],
+        )
+        self.vram_label.pack(side="right", padx=15, pady=12)
 
         # ffmpeg status
         ffmpeg_row = setting_row(main)
@@ -1399,9 +1418,20 @@ class FishTalkUI:
         def on_complete(wav_path):
             _sample_queue.put(_SENTINEL)
             def _finish():
-                import time as _t; _t.sleep(1.0)
+                import time as _t
+                # Wait until the audio thread consumes everything in the queue
+                while not _sample_queue.empty():
+                    _t.sleep(0.1)
+                
+                # Give it a moment to finish playing the final buffer
+                _t.sleep(0.5)
+                
                 if _stream[0]:
-                    _stream[0].stop(); _stream[0].close()
+                    try:
+                        _stream[0].stop()
+                        _stream[0].close()
+                    except Exception:
+                        pass
                 self.root.after(0, lambda: self.tts_status.configure(
                     text=f"✅ Done: {self._playlist_items[self._current_playing]['name']}"
                 ))
@@ -2083,7 +2113,7 @@ class FishTalkUI:
         self._update_ram()
 
     def _update_ram(self):
-        """Update RAM readout label."""
+        """Update RAM and VRAM readout labels."""
         try:
             ram = get_ram_usage()
             text = (
@@ -2094,6 +2124,19 @@ class FishTalkUI:
             self.ram_label.configure(text=text)
         except Exception:
             self.ram_label.configure(text="Unable to read")
+
+        try:
+            vram = get_vram_usage()
+            if vram:
+                text = (
+                    f"System: {vram['used_gb']:.1f} / "
+                    f"{vram['total_gb']:.1f} GB ({vram['percent']:.0f}%)"
+                )
+                self.vram_label.configure(text=text)
+            else:
+                self.vram_label.configure(text="N/A (No CUDA GPU)")
+        except Exception:
+            self.vram_label.configure(text="Unable to read")
 
         # Schedule next update
         self.root.after(5000, self._update_ram)
