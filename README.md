@@ -1,5 +1,11 @@
 # FishTalk
 
+<p align="center">
+  <img src="images/Icon.png" alt="FishTalk Icon" width="300"/>
+</p>
+
+<h1 align="center">FishTalk</h1>
+
 FishTalk is a desktop text-to-speech application built for Windows. It supports multiple AI engines, voice cloning, real-time audio playback, and speech-to-text transcription. It is designed to work entirely offline once the models are downloaded.
 
 ---
@@ -47,6 +53,14 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 ---
 
+## Screenshots
+
+![Main Interface](images/main-window.png)
+![Voice Lab](images/voice-lab.png)
+![Settings](images/settings.png)
+
+---
+
 ## Requirements
 
 - Windows 10 or later
@@ -61,15 +75,21 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 #Easy Install:
 1. Download and extract FiahTalk-Lite
-2. Run FishTalk.exe.  This will install all needed dependencies
+2. Run FishTalk.exe.  This will when needed install dependencies. 
 
+```
+(Kokoro on first run and Fish Speech when you switch to them the first time.) 
+```
 
 #Offline Install:
 1. Download and extract FishTalk-Kokoro_Only
 2. Download and extract Model-fish-speech-1.4 inside the FishTalk folder
 3. Download and extract Model-fish-speech-1.5 inside the FishTalk folder
 4. Run FishTalk.exe. It will still install Python from the included installer
-(If you miss any of these and have an internet connection it will grab them.)
+
+```
+(If you miss any of these and have an internet connection it will grab them when you switch to them the first time.)
+```
 
 #Advanced Install:
 1. Clone this repository:
