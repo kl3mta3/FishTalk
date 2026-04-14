@@ -37,41 +37,137 @@ KOKORO_VOICES_PATH = os.path.join(_MODEL_DIR, "voices-v1.0.bin")
 
 # fmt: off
 KOKORO_VOICES: dict[str, str] = {
-    # American Female
-    "🇺🇸 Heart (F)":    "af_heart",
-    "🇺🇸 Bella (F)":    "af_bella",
-    "🇺🇸 Nicole (F)":   "af_nicole",
-    "🇺🇸 Sarah (F)":    "af_sarah",
-    "🇺🇸 Sky (F)":      "af_sky",
-    "🇺🇸 Alloy (F)":    "af_alloy",
-    "🇺🇸 Echo (F)":     "af_echo",
-    "🇺🇸 Nova (F)":     "af_nova",
-    "🇺🇸 River (F)":    "af_river",
-    # American Male
-    "🇺🇸 Adam (M)":     "am_adam",
-    "🇺🇸 Michael (M)":  "am_michael",
-    "🇺🇸 Eric (M)":     "am_eric",
-    "🇺🇸 Fenrir (M)":   "am_fenrir",
-    "🇺🇸 Liam (M)":     "am_liam",
-    "🇺🇸 Onyx (M)":     "am_onyx",
-    "🇺🇸 Puck (M)":     "am_puck",
-    "🇺🇸 Santa (M)":    "am_santa",
-    # British Female
-    "🇬🇧 Emma (F)":     "bf_emma",
-    "🇬🇧 Isabella (F)": "bf_isabella",
-    "🇬🇧 Alice (F)":    "bf_alice",
-    "🇬🇧 Lily (F)":     "bf_lily",
-    # British Male
-    "🇬🇧 George (M)":   "bm_george",
-    "🇬🇧 Lewis (M)":    "bm_lewis",
-    "🇬🇧 Daniel (M)":   "bm_daniel",
-    "🇬🇧 Fable (M)":    "bm_fable",
+    # ── American English Female ───────────────────────────────────────────
+    "🇺🇸 Heart (F)":        "af_heart",
+    "🇺🇸 Bella (F)":        "af_bella",
+    "🇺🇸 Nicole (F)":       "af_nicole",
+    "🇺🇸 Sarah (F)":        "af_sarah",
+    "🇺🇸 Sky (F)":          "af_sky",
+    "🇺🇸 Alloy (F)":        "af_alloy",
+    "🇺🇸 Echo (F)":         "af_echo",
+    "🇺🇸 Nova (F)":         "af_nova",
+    "🇺🇸 River (F)":        "af_river",
+    "🇺🇸 Aoede (F)":        "af_aoede",
+    "🇺🇸 Jessica (F)":      "af_jessica",
+    "🇺🇸 Kore (F)":         "af_kore",
+    # ── American English Male ─────────────────────────────────────────────
+    "🇺🇸 Adam (M)":         "am_adam",
+    "🇺🇸 Michael (M)":      "am_michael",
+    "🇺🇸 Eric (M)":         "am_eric",
+    "🇺🇸 Fenrir (M)":       "am_fenrir",
+    "🇺🇸 Liam (M)":         "am_liam",
+    "🇺🇸 Onyx (M)":         "am_onyx",
+    "🇺🇸 Puck (M)":         "am_puck",
+    "🇺🇸 Santa (M)":        "am_santa",
+    # ── British English Female ────────────────────────────────────────────
+    "🇬🇧 Emma (F)":         "bf_emma",
+    "🇬🇧 Isabella (F)":     "bf_isabella",
+    "🇬🇧 Alice (F)":        "bf_alice",
+    "🇬🇧 Lily (F)":         "bf_lily",
+    # ── British English Male ──────────────────────────────────────────────
+    "🇬🇧 George (M)":       "bm_george",
+    "🇬🇧 Lewis (M)":        "bm_lewis",
+    "🇬🇧 Daniel (M)":       "bm_daniel",
+    "🇬🇧 Fable (M)":        "bm_fable",
+    # ── Japanese Female ───────────────────────────────────────────────────
+    "🇯🇵 Alpha (F)":        "jf_alpha",
+    "🇯🇵 Gongitsune (F)":   "jf_gongitsune",
+    "🇯🇵 Nezuko (F)":       "jf_nezuko",
+    "🇯🇵 Tebukuro (F)":     "jf_tebukuro",
+    # ── Japanese Male ─────────────────────────────────────────────────────
+    "🇯🇵 Kumo (M)":         "jm_kumo",
+    # ── Spanish Female ────────────────────────────────────────────────────
+    "🇪🇸 Dora (F)":         "ef_dora",
+    # ── French Female ─────────────────────────────────────────────────────
+    "🇫🇷 Siwis (F)":        "ff_siwis",
+    # ── Hindi Female ──────────────────────────────────────────────────────
+    "🇮🇳 Alpha (F)":        "hf_alpha",
+    "🇮🇳 Beta (F)":         "hf_beta",
+    # ── Hindi Male ────────────────────────────────────────────────────────
+    "🇮🇳 Omega (M)":        "hm_omega",
+    "🇮🇳 Psi (M)":          "hm_psi",
+    # ── Italian Female ────────────────────────────────────────────────────
+    "🇮🇹 Sara (F)":         "if_sara",
+    # ── Italian Male ──────────────────────────────────────────────────────
+    "🇮🇹 Nicola (M)":       "im_nicola",
+    # ── Brazilian Portuguese Female ───────────────────────────────────────
+    "🇧🇷 Dora (F)":         "pf_dora",
+    # ── Brazilian Portuguese Male ─────────────────────────────────────────
+    "🇧🇷 Alex (M)":         "pm_alex",
+    "🇧🇷 Santa (M)":        "pm_santa",
+    # ── Mandarin Chinese Female ───────────────────────────────────────────
+    "🇨🇳 Xiaobei (F)":      "zf_xiaobei",
+    "🇨🇳 Xiaoni (F)":       "zf_xiaoni",
+    "🇨🇳 Xiaoxiao (F)":     "zf_xiaoxiao",
+    "🇨🇳 Xiaoyi (F)":       "zf_xiaoyi",
+    # ── Mandarin Chinese Male ─────────────────────────────────────────────
+    "🇨🇳 Yunjian (M)":      "zm_yunjian",
+    "🇨🇳 Yunxi (M)":        "zm_yunxi",
+    "🇨🇳 Yunxia (M)":       "zm_yunxia",
+    "🇨🇳 Yunyang (M)":      "zm_yunyang",
 }
 # fmt: on
 
 DEFAULT_VOICE = "af_bella"
 DEFAULT_VOICE_DISPLAY = "🇺🇸 Bella (F)"
 VOICE_ID_FROM_NAME = {v: k for k, v in KOKORO_VOICES.items()}
+
+# Map voice ID prefix (first 2 chars) → language group display label.
+# Adding a new language to KOKORO_VOICES auto-creates its radio button.
+_LANG_FROM_PREFIX: dict[str, str] = {
+    "af": "🇺🇸 American",
+    "am": "🇺🇸 American",
+    "bf": "🇬🇧 British",
+    "bm": "🇬🇧 British",
+    "jf": "🇯🇵 Japanese",
+    "jm": "🇯🇵 Japanese",
+    "ef": "🇪🇸 Spanish",
+    "em": "🇪🇸 Spanish",
+    "ff": "🇫🇷 French",
+    "fm": "🇫🇷 French",
+    "hf": "🇮🇳 Hindi",
+    "hm": "🇮🇳 Hindi",
+    "if": "🇮🇹 Italian",
+    "im": "🇮🇹 Italian",
+    "pf": "🇧🇷 Portuguese",
+    "pm": "🇧🇷 Portuguese",
+    "zf": "🇨🇳 Mandarin",
+    "zm": "🇨🇳 Mandarin",
+    "kf": "🇰🇷 Korean",
+    "km": "🇰🇷 Korean",
+}
+
+# Auto-derive language groups from voice ID prefixes — preserves insertion order.
+from collections import defaultdict as _defaultdict
+_grp: dict[str, list[str]] = _defaultdict(list)
+for _dn, _vid in KOKORO_VOICES.items():
+    _lang = _LANG_FROM_PREFIX.get(_vid[:2])
+    if _lang:
+        _grp[_lang].append(_dn)
+KOKORO_LANGUAGE_GROUPS: dict[str, list[str]] = dict(_grp)
+del _grp, _dn, _vid, _lang
+
+KOKORO_DEFAULT_LANG = "🇺🇸 American"
+
+# voice_id → plain language name used in translation prompts.
+# English voices return "English" so translate can skip them (no-op).
+_PREFIX_TO_LANGNAME: dict[str, str] = {
+    "af": "English",           "am": "English",
+    "bf": "English",           "bm": "English",
+    "jf": "Japanese",          "jm": "Japanese",
+    "ef": "Spanish",           "em": "Spanish",
+    "ff": "French",            "fm": "French",
+    "hf": "Hindi",             "hm": "Hindi",
+    "if": "Italian",           "im": "Italian",
+    "pf": "Brazilian Portuguese", "pm": "Brazilian Portuguese",
+    "zf": "Mandarin Chinese",  "zm": "Mandarin Chinese",
+    "kf": "Korean",            "km": "Korean",
+}
+KOKORO_VOICE_LANG: dict[str, str] = {
+    vid: _PREFIX_TO_LANGNAME[vid[:2]]
+    for vid in KOKORO_VOICES.values()
+    if vid[:2] in _PREFIX_TO_LANGNAME
+}
 
 
 def voice_display(voice_id: str) -> str:

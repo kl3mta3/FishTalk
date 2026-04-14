@@ -44,7 +44,7 @@ class TextEditorWindow(ctk.CTkToplevel):
     ----------
     parent      : root Tk window
     item        : playlist item dict (edited in-place on Save)
-    engine      : "kokoro" | "fish14" | "fish15"
+    engine      : "kokoro" | "fish14" | "s1mini" | "s1"
     on_save     : optional callback() fired after user clicks Save
     """
 
@@ -871,14 +871,21 @@ class TextEditorWindow(ctk.CTkToplevel):
     # Diff / review dialog
     # ------------------------------------------------------------------
 
+    # Sources that are tag operations vs text-change operations
+    _TAG_SOURCES = {"Rule-based suggestions", "Qwen AI suggestions"}
+
     def _show_diff_dialog(self, original: str, suggested: str, source: str = ""):
-        """Show a side-by-side before/after dialog. User can accept or discard."""
+        """Show a side-by-side diff dialog with word-level highlights. Accept or discard."""
         if original.strip() == suggested.strip():
-            messagebox.showinfo("Tag Suggestion", "No tags were added — no clear emotional cues found.", parent=self)
+            messagebox.showinfo("No Changes", "No changes were suggested.", parent=self)
             return
 
+        is_tag_op = source in self._TAG_SOURCES
+        window_title = f"Review Tags — {source}" if is_tag_op else f"Review Changes — {source}"
+        right_label  = "With Tags" if is_tag_op else "Suggested"
+
         dlg = ctk.CTkToplevel(self)
-        dlg.title(f"Review Tags — {source}")
+        dlg.title(window_title)
         dlg.geometry("920x560")
         dlg.configure(fg_color=COLORS["bg_dark"])
         dlg.grab_set()
@@ -896,21 +903,34 @@ class TextEditorWindow(ctk.CTkToplevel):
         panels.grid_columnconfigure(1, weight=1)
         panels.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(panels, text="Original", font=(FONT_FAMILY, 11, "bold"),
-                     text_color=COLORS["text_muted"]).grid(row=0, column=0, sticky="w", padx=4)
-        ctk.CTkLabel(panels, text="With Tags", font=(FONT_FAMILY, 11, "bold"),
-                     text_color=COLORS["accent_light"]).grid(row=0, column=1, sticky="w", padx=4)
+        # Column headers with a small legend
+        hdr_orig = ctk.CTkFrame(panels, fg_color="transparent")
+        hdr_orig.grid(row=0, column=0, sticky="w", padx=4, pady=(0, 2))
+        ctk.CTkLabel(hdr_orig, text="Original", font=(FONT_FAMILY, 11, "bold"),
+                     text_color=COLORS["text_muted"]).pack(side="left")
+        ctk.CTkLabel(hdr_orig, text="  removed", font=(FONT_FAMILY, 10),
+                     text_color="#ef476f").pack(side="left", padx=(8, 0))
+
+        hdr_sugg = ctk.CTkFrame(panels, fg_color="transparent")
+        hdr_sugg.grid(row=0, column=1, sticky="w", padx=4, pady=(0, 2))
+        ctk.CTkLabel(hdr_sugg, text=right_label, font=(FONT_FAMILY, 11, "bold"),
+                     text_color=COLORS["accent_light"]).pack(side="left")
+        ctk.CTkLabel(hdr_sugg, text="  added", font=(FONT_FAMILY, 10),
+                     text_color="#06d6a0").pack(side="left", padx=(8, 0))
 
         orig_box = ctk.CTkTextbox(panels, fg_color=COLORS["bg_input"], font=(FONT_FAMILY, 12),
                                    wrap="word", corner_radius=6)
         orig_box.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
         orig_box.insert("1.0", original)
-        orig_box.configure(state="disabled")
 
         tagged_box = ctk.CTkTextbox(panels, fg_color=COLORS["bg_input"], font=(FONT_FAMILY, 12),
                                      wrap="word", corner_radius=6)
         tagged_box.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
         tagged_box.insert("1.0", suggested)
+
+        # Apply word-level diff highlights, then lock the original pane
+        self._apply_diff_highlights(orig_box, tagged_box, original, suggested)
+        orig_box.configure(state="disabled")
 
         btn_bar = ctk.CTkFrame(dlg, fg_color="transparent")
         btn_bar.pack(fill="x", padx=10, pady=8)
@@ -928,3 +948,47 @@ class TextEditorWindow(ctk.CTkToplevel):
         ctk.CTkButton(btn_bar, text="✕ Discard", fg_color=COLORS["danger"],
                       hover_color="#d43d62", width=120, height=34,
                       font=(FONT_FAMILY, 12, "bold"), command=dlg.destroy).pack(side="left")
+
+    @staticmethod
+    def _apply_diff_highlights(orig_ctk: ctk.CTkTextbox, sugg_ctk: ctk.CTkTextbox,
+                                original: str, suggested: str):
+        """
+        Word-level diff highlighting using difflib.
+
+        Original pane  — removed/changed words: red + underline
+        Suggested pane — added/changed words:   green + subtle background
+        """
+        import difflib
+        import re
+
+        orig_tw = orig_ctk._textbox
+        sugg_tw = sugg_ctk._textbox
+
+        orig_tw.tag_configure("removed", foreground="#ef476f", underline=True)
+        sugg_tw.tag_configure("added",   foreground="#06d6a0", background="#0d2a1c")
+
+        # Tokenize preserving whitespace so offsets stay accurate
+        tokens_orig = re.findall(r'\S+|\s+', original)
+        tokens_sugg = re.findall(r'\S+|\s+', suggested)
+
+        matcher = difflib.SequenceMatcher(None, tokens_orig, tokens_sugg, autojunk=False)
+
+        orig_off = 0
+        sugg_off = 0
+
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
+            o_len = sum(len(tokens_orig[k]) for k in range(i1, i2))
+            s_len = sum(len(tokens_sugg[k]) for k in range(j1, j2))
+
+            if op in ("replace", "delete") and o_len:
+                s = orig_tw.index(f"1.0 + {orig_off}c")
+                e = orig_tw.index(f"1.0 + {orig_off + o_len}c")
+                orig_tw.tag_add("removed", s, e)
+
+            if op in ("replace", "insert") and s_len:
+                s = sugg_tw.index(f"1.0 + {sugg_off}c")
+                e = sugg_tw.index(f"1.0 + {sugg_off + s_len}c")
+                sugg_tw.tag_add("added", s, e)
+
+            orig_off += o_len
+            sugg_off += s_len

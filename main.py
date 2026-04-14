@@ -109,7 +109,7 @@ from settings import (
     validate_fish_speech_path,
     get_device,
 )
-from utils import setup_ffmpeg, is_kokoro_ready, setup_kokoro
+from utils import setup_ffmpeg, is_kokoro_ready, setup_kokoro, is_fish_speech_ready, FISH_ENGINE_CONFIG
 from tts_engine import TTSEngine
 from kokoro_engine import KokoroEngine
 from stt_engine import STTEngine
@@ -327,6 +327,7 @@ class FishTalkApp:
 
                 _engine = getattr(self.settings, 'engine', 'kokoro')
 
+                # ── Kokoro: auto-download if missing (always auto-downloaded) ──
                 if _engine == 'kokoro':
                     if not is_kokoro_ready():
                         update_splash("Downloading Kokoro models (~330 MB)…", 0.15)
@@ -336,53 +337,29 @@ class FishTalkApp:
                         else:
                             logger.warning("Kokoro model download failed; engine may not load.")
                     else:
-                        update_splash("Kokoro engine ready.", 0.2)
+                        update_splash("Kokoro ready.", 0.2)
                         logger.info("Engine: Kokoro (models present)")
+
+                # ── Fish Speech engines: validate only — download happens on first use ──
                 else:
-                    # Fish Speech — only validate/download the selected version.
-                    _fs_version = "1.5" if _engine == "fish15" else "1.4"
-                    update_splash(f"Validating Fish-Speech {_fs_version}...", 0.15)
+                    _fs_path = os.path.join(APP_DIR, "fish-speech")
+                    _ckpt_name = FISH_ENGINE_CONFIG.get(_engine, FISH_ENGINE_CONFIG["fish14"])[0]
+                    update_splash(f"Checking {_engine} models…", 0.15)
 
-                    bundled_path = os.path.join(APP_DIR, "fish-speech" if _fs_version == "1.4" else "fish-speech-1.5")
-                    saved_path = self.settings.fish_speech_path
-
-                    if saved_path and os.path.isdir(saved_path):
-                        fs_path = saved_path
-                    elif os.path.isdir(bundled_path) and os.listdir(bundled_path):
-                        fs_path = bundled_path
-                        self.settings.fish_speech_path = fs_path
+                    if is_fish_speech_ready(_engine):
+                        self.settings.fish_speech_path = _fs_path
+                        self.settings.checkpoint_name  = f"checkpoints/{_ckpt_name}"
                         self.settings.save()
-                        logger.info("Auto-resolved Fish-Speech path: %s", fs_path)
+                        logger.info("Engine: %s (checkpoints present)", _engine)
                     else:
-                        # Not present — download now (user deliberately chose this engine)
-                        update_splash(f"Fish-Speech {_fs_version} not found. Downloading (~1.5 GB)...", 0.16)
-                        ok = setup_fish_speech(
-                            dest_dir=bundled_path,
-                            on_progress=update_splash,
-                            version=_fs_version,
-                        )
-                        fs_path = bundled_path
-                        if ok:
-                            self.settings.fish_speech_path = fs_path
-                            self.settings.checkpoint_name = f"checkpoints/fish-speech-{_fs_version}"
-                            self.settings.save()
-                            logger.info("Fish-Speech %s download complete: %s", _fs_version, fs_path)
-                        else:
-                            logger.warning("Fish-Speech %s download failed; engine may not work.", _fs_version)
-
-                    result = validate_fish_speech_path(fs_path)
-                    if result["valid"]:
-                        self.settings.fish_speech_path = fs_path
-                        logger.info("Fish-Speech path validated: %s", fs_path)
-                    else:
-                        logger.warning("Fish-Speech not found at %s: %s", fs_path, result["message"])
+                        logger.info("Engine: %s — checkpoints not yet downloaded (first-use download).", _engine)
 
                 update_splash("Initializing voice manager...", 0.2)
-                # Ensure all engine voice subdirectories exist on every launch
-                # so switching engines never hits a missing-folder error.
-                for _subdir in ("fish14", "fish15", "kokoro"):
+                # Ensure voice subdirs for all engines exist so switching never
+                # hits a missing-folder error.  Fish Speech 1.5 removed.
+                for _subdir in ("kokoro", "fish14", "s1mini", "s1"):
                     os.makedirs(os.path.join(VOICES_DIR, _subdir), exist_ok=True)
-                _eng = getattr(self.settings, 'engine', 'fish14')
+                _eng = getattr(self.settings, 'engine', 'kokoro')
                 voices_subdir = os.path.join(VOICES_DIR, _eng)
                 self.voice_manager = VoiceManager(voices_subdir)
 
@@ -513,13 +490,14 @@ class FishTalkApp:
         )
 
         # Update engine status labels
-        fs_path = self.settings.fish_speech_path or get_bundled_fish_speech_path()
-        fs_valid = validate_fish_speech_path(fs_path)
-        if fs_valid["valid"]:
+        _active_engine = getattr(self.settings, 'engine', 'kokoro')
+        if _active_engine == 'kokoro' or is_fish_speech_ready(_active_engine):
             self.ui.update_tts_status("✅  Engine ready (model loads on first use)", COLORS["success"])
         else:
+            _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1"}
+            _label = _eng_labels.get(_active_engine, _active_engine)
             self.ui.update_tts_status(
-                "⚠  Fish-Speech not found — check Settings",
+                f"⬇  {_label} not downloaded — select it in Settings to download",
                 COLORS["warning"],
             )
 

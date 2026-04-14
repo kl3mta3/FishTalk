@@ -471,41 +471,81 @@ def grammar_check(
     return "\n\n".join(corrected_parts)
 
 
-# Fish Speech supports inline prosody/emotion tags — encourage their use.
-_ENHANCE_SYSTEM_PROMPT_FISH = """You are a TTS preparation assistant for Fish Speech, a neural voice engine.
-Your job is to make text sound natural and expressive when read aloud.
+# ---------------------------------------------------------------------------
+# Fish Speech 1.4 — baseline, conservative tag use
+# ---------------------------------------------------------------------------
+_ENHANCE_SYSTEM_PROMPT_FISH14 = """You are a TTS preparation assistant for Fish Speech 1.4, a neural voice engine.
+Your job: improve the rhythm and pacing of text so it sounds natural when spoken aloud, with light emotional direction.
 
-Improvements you should make:
-- Add commas, em-dashes (—), or ellipses (...) where a speaker would naturally pause or breathe
-- Break very long sentences into shorter ones for better pacing
-- Spell out numbers and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor", "e.g." → "for example")
-- Simplify awkward written constructions that sound unnatural when spoken
-- Where emotion is clearly present in the text, insert ONE Fish Speech tag at the START of the sentence:
+Rules:
+- Add commas or em-dashes where a speaker would naturally breathe or pause
+- Break overly long sentences into shorter ones at logical clause boundaries
+- Spell out numerals and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor")
+- Where emotion is clearly and strongly present, insert ONE tag at the START of the sentence only:
     Emotions: (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused)
     Inline effects (place directly before the relevant word): [laugh] [breath] [sigh] [whisper]
-- Use [breath] at natural inhale points in long passages
+- Be conservative — only tag sentences with unmistakable emotional content
+- Preserve ALL meaning, names, proper nouns, and fictional/technical terminology exactly as written
+- Match the tone, register, and style of the original — do not rewrite, only reformat
+- Do NOT add, remove, or paraphrase any content
+- Return ONLY the improved text, nothing else"""
+
+# ---------------------------------------------------------------------------
+# S1 Mini (0.5B) — compact model, simple clear instructions, conservative tags
+# ---------------------------------------------------------------------------
+_ENHANCE_SYSTEM_PROMPT_S1MINI = """You are a TTS preparation assistant for OpenAudio S1 Mini, a compact neural voice engine that understands Fish Speech prosody tags.
+Your job: improve rhythm and pacing so the text sounds natural when spoken aloud by a human narrator.
 
 Rules:
-1. Preserve all meaning, names, proper nouns, and fictional terminology exactly.
-2. Do NOT change the tone or style of the writing.
-3. Be conservative with tags — only add them where the emotion or effect is clearly warranted.
-4. Return ONLY the improved text. No explanations, no preamble."""
+- Add commas or em-dashes where a speaker would naturally breathe or pause
+- Break overly long sentences into shorter ones at logical clause boundaries
+- Spell out numerals and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor")
+- Only tag sentences where emotion is unmistakably strong and obvious — insert ONE tag at the START of the sentence:
+    Emotions: (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused)
+    Inline effects (directly before the relevant word): [laugh] [breath] [sigh] [whisper]
+- When in doubt, do NOT add a tag — plain text is better than a wrong tag
+- Preserve ALL meaning, names, proper nouns, and fictional/technical terminology exactly as written
+- Match the tone, register, and style of the original — do not rewrite, only reformat
+- Do NOT add, remove, or paraphrase any content
+- Return ONLY the improved text, nothing else"""
+
+# ---------------------------------------------------------------------------
+# S1 Full (4B) — high-capacity model, richer emotional direction encouraged
+# ---------------------------------------------------------------------------
+_ENHANCE_SYSTEM_PROMPT_S1 = """You are a TTS preparation assistant for OpenAudio S1, a high-quality neural voice engine with full Fish Speech prosody tag support.
+Your job: shape the text for expressive, natural narration — improving both pacing and emotional delivery.
+
+Rules:
+- Add commas or em-dashes where a speaker would naturally breathe or pause
+- Break overly long sentences into shorter ones at logical clause boundaries
+- Spell out numerals and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor")
+- For each sentence where emotion is present, insert ONE tag at the START — choose the most fitting:
+    Emotions: (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused)
+    Inline effects (directly before the relevant word): [laugh] [breath] [sigh] [whisper]
+- Use [breath] at natural inhale points in long dramatic or descriptive passages
+- Be expressive but accurate — never force a tag that doesn't fit the actual content
+- Preserve ALL meaning, names, proper nouns, and fictional/technical terminology exactly as written
+- Match the tone, register, and style of the original — do not rewrite, only reformat
+- Do NOT add, remove, or paraphrase any content
+- Return ONLY the improved text, nothing else"""
+
+# Keep a generic fish alias pointing at the 1.4 prompt for any legacy code paths
+_ENHANCE_SYSTEM_PROMPT_FISH = _ENHANCE_SYSTEM_PROMPT_FISH14
 
 # Kokoro does not parse Fish Speech tags — focus on punctuation and pacing only.
-_ENHANCE_SYSTEM_PROMPT_KOKORO = """You are a TTS preparation assistant for Kokoro, a clean neural voice engine.
-Your job is to make text sound natural and well-paced when read aloud.
+_ENHANCE_SYSTEM_PROMPT_KOKORO = """You are a TTS preparation assistant for Kokoro, a neural voice engine that reads plain text only.
 
-Improvements you should make:
-- Add commas, em-dashes (—), or ellipses (...) where a speaker would naturally pause or breathe
-- Break very long sentences into shorter ones for better pacing
-- Spell out numbers and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor", "e.g." → "for example")
-- Simplify awkward written constructions that sound unnatural when spoken
+Your job: improve the rhythm and pacing of text so it sounds natural when spoken aloud by a human narrator.
 
 Rules:
-1. Preserve all meaning, names, proper nouns, and fictional terminology exactly.
-2. Do NOT add any special tags, brackets, or markup — Kokoro reads plain text only.
-3. Do NOT change the tone or style of the writing.
-4. Return ONLY the improved text. No explanations, no preamble."""
+- Add commas or em-dashes where a speaker would naturally breathe or pause
+- Break overly long sentences into shorter ones at logical clause boundaries
+- Spell out numerals and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor")
+- Preserve ALL meaning, names, proper nouns, and fictional/technical terminology exactly as written
+- Match the tone, register, and style of the original — do not rewrite, only reformat
+- Do NOT add ellipses, brackets, tags, markdown, or any special characters
+- Do NOT add, remove, or paraphrase any content
+- Return ONLY the improved text, nothing else"""
 
 _TONE_SYSTEM_PROMPT_TEMPLATE = """You are a writing assistant. Rewrite the following text in a {tone} tone.
 
@@ -536,19 +576,23 @@ def enhance_for_tts(
     """
     Use Qwen 0.5B to improve text for natural TTS delivery.
 
-    engine: "kokoro" uses a plain-text prompt (no tags).
-            "fish14" / "fish15" uses the Fish Speech prompt (prosody tags encouraged).
+    engine: "kokoro" — plain-text prompt (no tags).
+            "fish14" — Fish Speech 1.4 prompt (conservative tags).
+            "s1mini" — S1 Mini prompt (compact, clear, conservative tags).
+            "s1"     — S1 Full prompt (expressive, full tag guidance).
     """
     if not is_llm_available():
         raise RuntimeError("llama-cpp-python is not installed.")
     if not is_qwen_model_ready():
         raise RuntimeError(f"Qwen model not found at {QWEN_MODEL_PATH}.")
 
-    system_prompt = (
-        _ENHANCE_SYSTEM_PROMPT_KOKORO
-        if engine == "kokoro"
-        else _ENHANCE_SYSTEM_PROMPT_FISH
-    )
+    _prompt_map = {
+        "kokoro": _ENHANCE_SYSTEM_PROMPT_KOKORO,
+        "s1mini": _ENHANCE_SYSTEM_PROMPT_S1MINI,
+        "s1":     _ENHANCE_SYSTEM_PROMPT_S1,
+        "fish14": _ENHANCE_SYSTEM_PROMPT_FISH14,
+    }
+    system_prompt = _prompt_map.get(engine, _ENHANCE_SYSTEM_PROMPT_FISH14)
 
     with _llm_lock:
         _load_llm()
@@ -584,6 +628,84 @@ def enhance_for_tts(
 
     if on_progress:
         on_progress("Done", 1.0)
+    return "\n\n".join(result_parts)
+
+
+TRANSLATE_LANGUAGES = [
+    "Japanese",
+    "Mandarin Chinese",
+    "Spanish",
+    "French",
+    "German",
+    "Hindi",
+    "Italian",
+    "Brazilian Portuguese",
+    "Korean",
+    "Russian",
+    "Arabic",
+    "English",
+]
+
+
+def translate_for_voice(text: str, target_language: str) -> str:
+    """
+    Translate text into target_language using Qwen.
+
+    target_language is a plain English name like "Japanese", "Mandarin Chinese",
+    "French", etc.  If the text is already in target_language the model is
+    instructed to return it unchanged (so English→English is a safe no-op).
+
+    Returns the translated text, or the original on any failure.
+    """
+    if not is_llm_available():
+        logger.warning("translate_for_voice: llama-cpp-python not installed.")
+        return text
+    if not is_qwen_model_ready():
+        logger.warning("translate_for_voice: Qwen model not found.")
+        return text
+
+    system_prompt = (
+        f"You are a professional translator. "
+        f"Translate the following text into {target_language}. "
+        f"Output ONLY the translated text — no explanations, no labels, no quotation "
+        f"marks around the full response, no original text alongside. "
+        f"Preserve paragraph breaks and punctuation style. "
+        f"If the text is already in {target_language}, return it exactly as-is."
+    )
+
+    with _llm_lock:
+        _load_llm()
+
+    # Process paragraph by paragraph so large documents don't blow the context.
+    paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
+    if not paragraphs:
+        return text
+
+    result_parts = []
+    for para in paragraphs:
+        chunks = _chunk_text(para, max_chars=800)
+        para_result = []
+        for chunk in chunks:
+            try:
+                with _llm_lock:
+                    output = _llm.create_chat_completion(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user",   "content": chunk},
+                        ],
+                        max_tokens=int(len(chunk) * 2.5) + 128,
+                        temperature=0.2,
+                        top_p=0.9,
+                    )
+                result = output["choices"][0]["message"]["content"].strip()
+                if not result:
+                    result = chunk
+            except Exception as exc:
+                logger.warning("translate_for_voice chunk failed: %s", exc)
+                result = chunk
+            para_result.append(result)
+        result_parts.append(" ".join(para_result))
+
     return "\n\n".join(result_parts)
 
 

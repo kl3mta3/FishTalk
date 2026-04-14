@@ -216,15 +216,28 @@ def setup_kokoro(on_progress=None) -> bool:
     return is_kokoro_ready()
 
 
-def is_fish_speech_ready(version: str = "1.4") -> bool:
-    """Return True if the Fish-Speech code and checkpoints for version are present."""
+# ---------------------------------------------------------------------------
+# Fish-Speech engine config
+# ---------------------------------------------------------------------------
+
+# Maps engine key → (checkpoint folder name, HuggingFace repo ID, needs HF token)
+FISH_ENGINE_CONFIG = {
+    "fish14": ("fish-speech-1.4", "fishaudio/fish-speech-1.4", False),
+    "s1mini":  ("openaudio-s1-mini", "fishaudio/openaudio-s1-mini", True),
+    "s1":      ("openaudio-s1",      "fishaudio/openaudio-s1",      True),
+}
+
+# All Fish Speech engines share the same v1.4.3 code directory
+FISH_CODE_DIR_NAME = "fish-speech"
+FISH_CODE_URL = "https://github.com/fishaudio/fish-speech/archive/refs/tags/v1.4.3.zip"
+
+
+def is_fish_speech_ready(engine: str = "fish14") -> bool:
+    """Return True if the Fish-Speech code and checkpoints for the engine are present."""
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    if version == "1.5":
-        code_dir = os.path.join(app_dir, "fish-speech-1.5")
-        ckpt_dir = os.path.join(code_dir, "checkpoints", "fish-speech-1.5")
-    else:
-        code_dir = os.path.join(app_dir, "fish-speech")
-        ckpt_dir = os.path.join(code_dir, "checkpoints", "fish-speech-1.4")
+    code_dir = os.path.join(app_dir, FISH_CODE_DIR_NAME)
+    ckpt_name = FISH_ENGINE_CONFIG.get(engine, FISH_ENGINE_CONFIG["fish14"])[0]
+    ckpt_dir  = os.path.join(code_dir, "checkpoints", ckpt_name)
 
     if not os.path.isdir(code_dir) or not os.listdir(code_dir):
         return False
@@ -236,113 +249,104 @@ def is_fish_speech_ready(version: str = "1.4") -> bool:
     )
 
 
-def setup_fish_speech(dest_dir: str, on_progress=None, version: str = "1.4") -> bool:
+def setup_fish_speech(engine: str = "fish14", on_progress=None, hf_token: str = "") -> bool:
     """
-    Ensure Fish-Speech code and model checkpoints are present for the given version.
+    Ensure Fish-Speech code and model checkpoints are present for the given engine.
 
-    version: "1.4" or "1.5"
+    engine: "fish14" | "s1mini" | "s1"
 
-    If the dest_dir does not exist or is empty:
-      1. Downloads the source zip from GitHub (~20 MB).
-      2. Downloads only the requested checkpoint from HuggingFace (~1.5 GB).
+    Steps:
+      1. Downloads Fish-Speech v1.4.3 source from GitHub if not present (~20 MB).
+      2. Downloads the engine's checkpoints from HuggingFace (~1–2 GB).
+         S1 Mini and S1 require a HuggingFace token (gated models).
 
     on_progress(message, fraction) is called throughout.
-    Returns True if fish-speech is ready, False on failure.
+    Returns True if ready, False on failure.
     """
     import urllib.request
     import zipfile
     import tempfile
 
-    CODE_URL = "https://github.com/fishaudio/fish-speech/archive/refs/tags/v1.4.3.zip"
+    cfg = FISH_ENGINE_CONFIG.get(engine, FISH_ENGINE_CONFIG["fish14"])
+    ckpt_name, hf_repo, needs_token = cfg
 
-    checkpoints_base = os.path.join(dest_dir, "checkpoints")
+    app_dir  = os.path.dirname(os.path.abspath(__file__))
+    code_dir = os.path.join(app_dir, FISH_CODE_DIR_NAME)
+    ckpt_dir = os.path.join(code_dir, "checkpoints", ckpt_name)
 
-    # --- Step 1: Fish-Speech code ---
-    if not os.path.isdir(dest_dir) or not os.listdir(dest_dir):
+    # --- Step 1: Fish-Speech code (shared across all engines) ---
+    if not os.path.isdir(code_dir) or not os.listdir(code_dir):
         try:
             if on_progress:
                 on_progress("Downloading Fish-Speech code (~20 MB)...", 0.05)
-
-            logger.info("Downloading Fish-Speech source from %s", CODE_URL)
+            logger.info("Downloading Fish-Speech source from %s", FISH_CODE_URL)
             tmp_zip = os.path.join(tempfile.gettempdir(), "fish_speech_src.zip")
 
             def _hook(b, bs, total):
                 if on_progress and total > 0:
                     frac = min(b * bs / total, 1.0) * 0.2
-                    on_progress(f"Downloading Fish-Speech code... {int(frac * 5 * 100)}%", frac)
+                    on_progress(f"Downloading Fish-Speech code... {int(frac * 500)}%", frac)
 
-            urllib.request.urlretrieve(CODE_URL, tmp_zip, reporthook=_hook)
-
+            urllib.request.urlretrieve(FISH_CODE_URL, tmp_zip, reporthook=_hook)
             if on_progress:
                 on_progress("Extracting Fish-Speech code...", 0.22)
 
-            os.makedirs(dest_dir, exist_ok=True)
+            os.makedirs(code_dir, exist_ok=True)
             with zipfile.ZipFile(tmp_zip, "r") as zf:
                 for member in zf.infolist():
-                    # Strip the top-level "fish-speech-1.4.3/" prefix
                     parts = member.filename.split("/", 1)
                     if len(parts) < 2 or not parts[1]:
                         continue
-                    target = os.path.join(dest_dir, parts[1])
+                    target = os.path.join(code_dir, parts[1])
                     if member.is_dir():
                         os.makedirs(target, exist_ok=True)
                     else:
                         os.makedirs(os.path.dirname(target), exist_ok=True)
                         with zf.open(member) as src, open(target, "wb") as dst:
                             dst.write(src.read())
-
             try:
                 os.remove(tmp_zip)
             except OSError:
                 pass
-
-            logger.info("Fish-Speech code extracted to %s", dest_dir)
-
+            logger.info("Fish-Speech code extracted to %s", code_dir)
         except Exception as exc:
             logger.error("Fish-Speech code download failed: %s", exc)
             return False
 
-    # --- Step 2: Model checkpoints (only the requested version) ---
-    ckpt_map = {
-        "1.4": ("fish-speech-1.4", "fishaudio/fish-speech-1.4"),
-        "1.5": ("fish-speech-1.5", "fishaudio/fish-speech-1.5"),
-    }
-    checkpoint_sets = [ckpt_map.get(version, ckpt_map["1.4"])]
+    # --- Step 2: Model checkpoints ---
+    has_weights = (
+        os.path.isdir(ckpt_dir) and any(
+            f.endswith((".pth", ".bin", ".safetensors"))
+            for f in os.listdir(ckpt_dir)
+        )
+    ) if os.path.isdir(ckpt_dir) else False
 
-    for ckpt_name, hf_repo in checkpoint_sets:
-        ckpt_dir = os.path.join(dest_dir, "checkpoints", ckpt_name)
-        has_weights = (
-            os.path.isdir(ckpt_dir) and any(
-                f.endswith((".pth", ".bin", ".safetensors"))
-                for f in os.listdir(ckpt_dir)
+    if not has_weights:
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError:
+            logger.error("huggingface_hub not installed; cannot download checkpoints.")
+            return False
+
+        if on_progress:
+            on_progress(f"Downloading {ckpt_name} checkpoints (~1.5 GB)...", 0.25)
+        logger.info("Downloading checkpoints from HuggingFace: %s", hf_repo)
+
+        token_arg = hf_token.strip() if (needs_token and hf_token) else None
+        try:
+            snapshot_download(
+                repo_id=hf_repo,
+                local_dir=ckpt_dir,
+                ignore_patterns=["*.md", "*.txt"],
+                token=token_arg,
             )
-        ) if os.path.isdir(ckpt_dir) else False
-
-        if not has_weights:
-            try:
-                from huggingface_hub import snapshot_download
-            except ImportError:
-                logger.error("huggingface_hub not installed; cannot download checkpoints.")
-                return False
-
-            if on_progress:
-                on_progress(f"Downloading {ckpt_name} checkpoints (~1.5 GB)...", 0.25)
-
-            logger.info("Downloading checkpoints from HuggingFace: %s", hf_repo)
-            try:
-                snapshot_download(
-                    repo_id=hf_repo,
-                    local_dir=ckpt_dir,
-                    ignore_patterns=["*.md", "*.txt"],
-                )
-                logger.info("Checkpoints downloaded to %s", ckpt_dir)
-            except Exception as exc:
-                logger.error("Checkpoint download failed for %s: %s", ckpt_name, exc)
-                return False
+            logger.info("Checkpoints downloaded to %s", ckpt_dir)
+        except Exception as exc:
+            logger.error("Checkpoint download failed for %s: %s", ckpt_name, exc)
+            return False
 
     if on_progress:
         on_progress("Fish-Speech ready", 1.0)
-
     return True
 
 
@@ -365,15 +369,15 @@ def normalize_text(text: str, engine: str = "fish") -> str:
     """
     Normalize text before TTS to improve pronunciation and quality.
 
-    engine: "fish" — preserve Fish Speech emotion/prosody tags
-            "kokoro" — strip all inline tags (Kokoro doesn't understand them)
+    engine: "fish" / "fish14" / "s1mini" / "s1" — preserve Fish Speech tags
+            "kokoro" — strip all inline tags (Kokoro reads plain text only)
 
     - Strips unknown/broken markup
     - Converts numbers to words (requires num2words)
     - Expands common abbreviations
     - Strips URLs
     """
-    # For Kokoro: strip Fish Speech style tags so they aren't read literally
+    # Strip Fish Speech tags only for Kokoro — all Fish Speech engines preserve them
     if engine == "kokoro":
         text = _FISH_BRACKET_TAGS.sub(' ', text)
         text = _FISH_EMOTION_TAGS.sub(' ', text)

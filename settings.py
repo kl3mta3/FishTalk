@@ -16,8 +16,9 @@ logger = logging.getLogger("FishTalk.settings")
 DEFAULTS = {
     "fish_speech_path": "",  # Auto-detected at startup
     "checkpoint_name": "checkpoints/fish-speech-1.4",
-    "engine": "kokoro",           # "fish14" | "fish15" | "kokoro"
+    "engine": "kokoro",     # "kokoro" | "fish14" | "s1mini" | "s1"
     "kokoro_voice": "af_bella",  # Active Kokoro preset voice ID
+    "hf_token": "",         # HuggingFace access token (for gated S1 models)
     "use_cuda": False,
     "memory_saver": False,
     "silent_mode": False,

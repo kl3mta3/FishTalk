@@ -20,7 +20,7 @@ import numpy as np
 
 from settings import Settings, detect_cuda, get_bundled_fish_speech_path, validate_fish_speech_path
 from cuda_setup import has_nvidia_gpu, get_nvidia_gpu_name, is_cuda_torch_installed, install_cuda_pytorch, revert_to_cpu_pytorch
-from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE, DEFAULT_VOICE_DISPLAY, install_kokoro, _is_kokoro_installed
+from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE, DEFAULT_VOICE_DISPLAY, install_kokoro, _is_kokoro_installed, KOKORO_LANGUAGE_GROUPS, KOKORO_DEFAULT_LANG, KOKORO_VOICE_LANG
 from utils import (
     get_ram_usage,
     get_vram_usage,
@@ -283,8 +283,11 @@ class FishTalkUI:
         controls = ctk.CTkFrame(tab, fg_color="transparent")
         controls.pack(fill="x", padx=10, pady=5)
 
-        # --- Voice variable (hidden — each playlist item has its own voice dropdown) ---
+        # --- Kokoro language filter (American / British) ---
         is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        self._kokoro_lang_var = ctk.StringVar(value=KOKORO_DEFAULT_LANG)
+
+        # --- Voice variable (hidden — each playlist item has its own voice dropdown) ---
         if is_kokoro:
             kokoro_display_names = list(KOKORO_VOICES.keys())
             saved_kokoro_id = getattr(self.settings, 'kokoro_voice', DEFAULT_VOICE)
@@ -322,6 +325,8 @@ class FishTalkUI:
         self.speed_slider.set(self.settings.speed)
         self.speed_slider.configure(command=self._on_speed_change)
         self.speed_slider.pack()
+        self._make_tooltip(self.speed_label,  "Playback speed — 1.0x is normal, 0.5x is half speed, 2.0x is double")
+        self._make_tooltip(self.speed_slider, "Playback speed — 1.0x is normal, 0.5x is half speed, 2.0x is double")
 
         # Volume slider
         vol_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -347,6 +352,8 @@ class FishTalkUI:
         self.vol_slider.set(self.settings.volume)
         self.vol_slider.configure(command=self._on_volume_change)
         self.vol_slider.pack()
+        self._make_tooltip(self.vol_label,  "Playback volume — audio is peak-normalized before this is applied")
+        self._make_tooltip(self.vol_slider, "Playback volume — audio is peak-normalized before this is applied")
 
         # Cadence slider
         cad_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -372,6 +379,8 @@ class FishTalkUI:
         self.cad_slider.set(self.settings.cadence)
         self.cad_slider.configure(command=self._on_cadence_change)
         self.cad_slider.pack()
+        self._make_tooltip(self.cad_label,  "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
+        self._make_tooltip(self.cad_slider, "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
 
         # ── Playlist header row ──────────────────────────────────────────
         playlist_header = ctk.CTkFrame(tab, fg_color="transparent")
@@ -383,6 +392,36 @@ class FishTalkUI:
             font=(FONT_FAMILY, 14, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(side="left")
+        
+        ctk.CTkLabel(
+        playlist_header,
+        text="(Double-Click File Name to open in Editor.)",
+        font=(FONT_FAMILY, 10),
+        text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(5, 0))
+
+        # ── Kokoro language filter radios ─────────────────────────────────
+        if is_kokoro:
+            lang_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
+            lang_frame.pack(side="left", padx=(20, 0))
+            ctk.CTkLabel(
+                lang_frame,
+                text="Accent:",
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_muted"],
+            ).pack(side="left", padx=(0, 6))
+            for lang_key in KOKORO_LANGUAGE_GROUPS:
+                ctk.CTkRadioButton(
+                    lang_frame,
+                    text=lang_key,
+                    variable=self._kokoro_lang_var,
+                    value=lang_key,
+                    font=(FONT_FAMILY, 11),
+                    text_color=COLORS["text_secondary"],
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent"],
+                    command=self._rebuild_playlist_ui,
+                ).pack(side="left", padx=(0, 10))
 
         # Read All button — only batch control in the header now
         self.btn_play = ctk.CTkButton(
@@ -802,7 +841,8 @@ class FishTalkUI:
             "tts_chunk_length": "chunk_length",
         }
 
-        def _make_gen_slider(parent, label, from_, to, initial, resolution, setting_key, fmt="{:.2f}"):
+        def _make_gen_slider(parent, label, from_, to, initial, resolution, setting_key,
+                             fmt="{:.2f}", tooltip=""):
             col = ctk.CTkFrame(parent, fg_color="transparent")
             col.pack(side="left", expand=True, fill="x", padx=(0, 16))
             lbl = ctk.CTkLabel(
@@ -832,16 +872,23 @@ class FishTalkUI:
             )
             sl.set(initial)
             sl.pack(fill="x", pady=(2, 0))
+            if tooltip:
+                self._make_tooltip(lbl, tooltip)
+                self._make_tooltip(sl, tooltip)
             return sl
 
         _make_gen_slider(sliders_row, "Temperature", 0.1, 1.0,
-                         getattr(self.settings, "tts_temperature", 0.7), 0.05, "tts_temperature")
+                         getattr(self.settings, "tts_temperature", 0.7), 0.05, "tts_temperature",
+                         tooltip="Randomness of generation — lower = more consistent/monotone, higher = more expressive/varied. Default 0.7.")
         _make_gen_slider(sliders_row, "Top-P", 0.1, 1.0,
-                         getattr(self.settings, "tts_top_p", 0.7), 0.05, "tts_top_p")
+                         getattr(self.settings, "tts_top_p", 0.7), 0.05, "tts_top_p",
+                         tooltip="Nucleus sampling — limits which tokens are considered each step. Lower = safer/safer, higher = more creative. Default 0.7.")
         _make_gen_slider(sliders_row, "Repetition Penalty", 1.0, 1.8,
-                         getattr(self.settings, "tts_repetition_penalty", 1.2), 0.05, "tts_repetition_penalty")
+                         getattr(self.settings, "tts_repetition_penalty", 1.2), 0.05, "tts_repetition_penalty",
+                         tooltip="Penalizes repeating the same sounds or patterns. Raise if you hear looping/stuttering. Default 1.2.")
         _make_gen_slider(sliders_row, "Chunk Length", 50, 300,
-                         getattr(self.settings, "tts_chunk_length", 150), 10, "tts_chunk_length", fmt="{:.0f}")
+                         getattr(self.settings, "tts_chunk_length", 150), 10, "tts_chunk_length", fmt="{:.0f}",
+                         tooltip="Tokens generated per speech chunk — smaller = lower latency but choppier; larger = smoother but slower to start. Default 150.")
 
         # Voice grid (scrollable)
         self.voice_grid_frame = ctk.CTkScrollableFrame(
@@ -1153,21 +1200,21 @@ class FishTalkUI:
         ).pack(side="left", padx=(0, 10), pady=12)
 
         engine_options = [
-            "Fish-Speech 1.4 — Medium W/Cloning (1-4Gb Ram)",
-            "Fish-Speech 1.5 — High W/Cloning (8+Gb Ram)",
-            "Kokoro — Fast(best) No Cloning (1-2Gb Ram)",
+            "Kokoro — Fast, No Cloning (1-2 GB RAM)",
+            "Fish-Speech 1.4 — Voice Cloning, No Account (1-4 GB RAM)",
+            "S1 Mini — Voice Cloning, HF Account Required (2-4 GB RAM)",
+            "S1 Full — High Quality Cloning, HF Account Required (6-8 GB RAM)",
         ]
 
         # Determine current engine from settings.engine field
-        _eng = getattr(self.settings, 'engine', 'fish14')
-        if _eng == 'kokoro':
-            current_engine = engine_options[2]
-        elif _eng == 'fish15':
-            current_engine = engine_options[1]
-        else:
-            current_engine = engine_options[0]
-
-
+        _eng = getattr(self.settings, 'engine', 'kokoro')
+        _eng_to_option = {
+            "kokoro": engine_options[0],
+            "fish14": engine_options[1],
+            "s1mini": engine_options[2],
+            "s1":     engine_options[3],
+        }
+        current_engine = _eng_to_option.get(_eng, engine_options[0])
 
         self.engine_var = ctk.StringVar(value=current_engine)
         self.engine_menu = ctk.CTkOptionMenu(
@@ -1425,6 +1472,8 @@ class FishTalkUI:
                 "blend_voice": "",
                 "blend_ratio": 0.5,
                 "assisted_flow": False,
+                "translate": False,
+                "translate_lang": "",
             }
             self._playlist_items.append(item)
             self._rebuild_playlist_ui()
@@ -1450,7 +1499,10 @@ class FishTalkUI:
 
         is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
         if is_kokoro:
-            voice_options = list(KOKORO_VOICES.keys())
+            # Filter by the selected language group radio
+            selected_lang = getattr(self, '_kokoro_lang_var', None)
+            lang_key = selected_lang.get() if selected_lang else KOKORO_DEFAULT_LANG
+            voice_options = KOKORO_LANGUAGE_GROUPS.get(lang_key, list(KOKORO_VOICES.keys()))
         else:
             voice_options = self.voices.get_voice_names() or ["Default (Random)"]
 
@@ -1628,7 +1680,7 @@ class FishTalkUI:
                 self._playlist_items[i]["assisted_flow"] = v.get()
 
             ctk.CTkLabel(
-                row, text="AI",
+                row, text="Assisted Flow",
                 font=(FONT_FAMILY, 9),
                 text_color=COLORS["accent_light"] if _af_llm_ok else COLORS["text_muted"],
                 width=18,
@@ -1660,6 +1712,71 @@ class FishTalkUI:
                 ).pack(side="left", padx=(0, 2))
             else:
                 ctk.CTkFrame(row, width=2, fg_color="transparent").pack(side="left")
+
+            # ── Translate toggle ──────────────────────────────────────────
+            # Kokoro: auto-detects language from voice ID (no dropdown needed)
+            # Fish engines: dropdown lets user pick target language
+            if _af_llm_ok:
+                tr_var = ctk.BooleanVar(value=item.get("translate", False))
+
+                def _on_tr_toggle(v=tr_var, i=idx):
+                    self._playlist_items[i]["translate"] = v.get()
+
+                ctk.CTkLabel(
+                    row, text="Translate",
+                    font=(FONT_FAMILY, 9),
+                    text_color=COLORS["accent_light"],
+                    width=18,
+                ).pack(side="left", padx=(4, 1))
+
+                _tr_switch = ctk.CTkSwitch(
+                    row,
+                    text="",
+                    variable=tr_var,
+                    command=_on_tr_toggle,
+                    width=36,
+                    height=20,
+                    switch_width=32,
+                    switch_height=16,
+                    progress_color="#f4a261",
+                    button_color="#e76f51",
+                    button_hover_color="#f4a261",
+                )
+                _tr_switch.pack(side="left", padx=(0, 2))
+
+                if is_kokoro:
+                    self._make_tooltip(
+                        _tr_switch,
+                        "Translate — AI translates text into the voice's language before generating speech",
+                    )
+                else:
+                    # Non-Kokoro: show language dropdown next to the toggle
+                    from tag_suggester import TRANSLATE_LANGUAGES
+                    saved_lang = item.get("translate_lang", "") or TRANSLATE_LANGUAGES[0]
+                    tr_lang_var = ctk.StringVar(value=saved_lang)
+
+                    def _on_tr_lang(v, i=idx, lvar=tr_lang_var):
+                        self._playlist_items[i]["translate_lang"] = lvar.get()
+
+                    _tr_lang_menu = ctk.CTkOptionMenu(
+                        row,
+                        variable=tr_lang_var,
+                        values=TRANSLATE_LANGUAGES,
+                        width=130,
+                        height=22,
+                        fg_color=COLORS["bg_input"],
+                        button_color="#e76f51",
+                        button_hover_color="#f4a261",
+                        dropdown_fg_color=COLORS["bg_card"],
+                        dropdown_hover_color=COLORS["bg_card_hover"],
+                        font=(FONT_FAMILY, 10),
+                        command=lambda v, i=idx, lvar=tr_lang_var: _on_tr_lang(v, i, lvar),
+                    )
+                    _tr_lang_menu.pack(side="left", padx=(0, 2))
+                    self._make_tooltip(
+                        _tr_switch,
+                        "Translate — AI translates text into the selected language before generating speech",
+                    )
 
             # ── Per-item buttons (icon-only, 32×32) ──────────────────────
             _ib = {"width": 32, "height": 32, "corner_radius": 5, "font": (FONT_FAMILY, 14)}
@@ -2260,29 +2377,70 @@ class FishTalkUI:
 
         item = self._playlist_items[self._current_playing]
 
-        # ── Assisted Flow: preprocess text through Qwen before TTS ──────
-        if _text_override is None and item.get("assisted_flow", False):
+        # ── Preprocessing: Translate → Assisted Flow (chain in one thread) ─
+        _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        _needs_translate = item.get("translate", False)
+        _needs_af        = item.get("assisted_flow", False)
+
+        # Resolve target language now (on main thread) before spawning worker
+        if _needs_translate:
+            if _is_kokoro_mode:
+                _item_voice_id  = KOKORO_VOICES.get(item.get("voice", ""), "")
+                _target_lang    = KOKORO_VOICE_LANG.get(_item_voice_id, "English")
+            else:
+                _target_lang = item.get("translate_lang", "") or "Japanese"
+        else:
+            _target_lang   = "English"
+            _item_voice_id = ""
+
+        # Skip translate if target is English (no-op) or nothing to do
+        _needs_translate = _needs_translate and _target_lang != "English"
+
+        if _text_override is None and (_needs_translate or _needs_af):
             from tag_suggester import is_llm_available, is_qwen_model_ready
             if is_llm_available() and is_qwen_model_ready():
-                self.tts_status.configure(text=f"AI Flow: enhancing {item['name']}…")
                 self._rebuild_playlist_ui()
+                _pre_engine = getattr(self.settings, 'engine', 'fish14')
 
-                _af_engine = getattr(self.settings, 'engine', 'fish14')
+                def _preprocess(
+                    _eng=_pre_engine,
+                    _lang=_target_lang,
+                    _do_tr=_needs_translate,
+                    _do_af=_needs_af,
+                ):
+                    current_text = item["text"]
 
-                def _preprocess(_eng=_af_engine):
-                    try:
-                        from tag_suggester import enhance_for_tts
-                        enhanced = enhance_for_tts(item["text"], engine=_eng)
-                        if not enhanced or not enhanced.strip():
-                            enhanced = item["text"]
-                    except Exception as exc:
-                        logger.warning("Assisted Flow failed: %s", exc)
-                        enhanced = item["text"]
-                    self.root.after(0, lambda t=enhanced: self._play_current_item(
+                    # ── Step 1: Translate ────────────────────────────────
+                    if _do_tr:
+                        try:
+                            from tag_suggester import translate_for_voice
+                            self.root.after(0, lambda l=_lang: self.tts_status.configure(
+                                text=f"Translating {item['name']} → {l}…"
+                            ))
+                            translated = translate_for_voice(current_text, _lang)
+                            if translated and translated.strip():
+                                current_text = translated
+                        except Exception as exc:
+                            logger.warning("Translate step failed: %s", exc)
+
+                    # ── Step 2: Assisted Flow ────────────────────────────
+                    if _do_af:
+                        try:
+                            from tag_suggester import enhance_for_tts
+                            self.root.after(0, lambda: self.tts_status.configure(
+                                text=f"AI Flow: enhancing {item['name']}…"
+                            ))
+                            enhanced = enhance_for_tts(current_text, engine=_eng)
+                            if enhanced and enhanced.strip():
+                                current_text = enhanced
+                        except Exception as exc:
+                            logger.warning("Assisted Flow failed: %s", exc)
+
+                    self.root.after(0, lambda t=current_text: self._play_current_item(
                         advance_fn=advance_fn, _text_override=t
                     ))
 
-                threading.Thread(target=_preprocess, daemon=True, name="AssistedFlow").start()
+                threading.Thread(target=_preprocess, daemon=True, name="Preprocess").start()
                 return
 
         text_to_use = _text_override if _text_override is not None else item["text"]
@@ -3033,7 +3191,7 @@ class FishTalkUI:
         """Disable the Voice Lab tab when Kokoro engine is active."""
         try:
             # Destroy all existing children so voice cards don't show through
-            for widget in self.tab_voices.winfo_children():
+            for widget in self.tab_voices.winfo_children():  # noqa
                 widget.destroy()
             # Show centred notice
             notice_frame = ctk.CTkFrame(self.tab_voices, fg_color="transparent")
@@ -3046,9 +3204,9 @@ class FishTalkUI:
             ).pack(expand=True, pady=(80, 8))
             ctk.CTkLabel(
                 notice_frame,
-                text="Voice Lab is not available in Kokoro mode.\n\n"
-                     "Kokoro uses 54 built-in preset voices — no cloning needed.\n"
-                     "Switch to Fish-Speech 1.4 or 1.5 in Settings to clone voices.",
+                text=f"Voice Lab is not available in Kokoro mode.\n\n"
+                     f"Kokoro uses {len(KOKORO_VOICES)} built-in preset voices across {len(KOKORO_LANGUAGE_GROUPS)} languages — no cloning needed.\n"
+                     f"Switch to Fish-Speech 1.4, S1 Mini, or S1 Full in Settings to clone voices.",
                 font=(FONT_FAMILY, 14),
                 text_color=COLORS["text_muted"],
                 justify="center",
@@ -3065,113 +3223,259 @@ class FishTalkUI:
 
     def _on_engine_select(self, new_val: str):
         """Update the active AI engine, downloading models if needed, then restart."""
-        from utils import is_fish_speech_ready, setup_fish_speech, is_kokoro_ready, setup_kokoro
+        from utils import is_fish_speech_ready, setup_fish_speech, is_kokoro_ready, setup_kokoro, FISH_ENGINE_CONFIG
 
-        # Determine which engine was chosen
+        # Map display label → engine key
         if "Kokoro" in new_val:
             new_engine = "kokoro"
-            fs_version = None
-        elif "1.5" in new_val:
-            new_engine = "fish15"
-            fs_version = "1.5"
-        else:
+        elif "1.4" in new_val:
             new_engine = "fish14"
-            fs_version = "1.4"
+        elif "S1 Mini" in new_val:
+            new_engine = "s1mini"
+        elif "S1 Full" in new_val:
+            new_engine = "s1"
+        else:
+            new_engine = "kokoro"
+
+        prev_engine = getattr(self.settings, 'engine', 'kokoro')
 
         # No change
-        if new_engine == getattr(self.settings, 'engine', 'kokoro'):
+        if new_engine == prev_engine:
             return
 
         # Save engine choice immediately
-        if new_engine == "kokoro":
-            self.settings.engine = 'kokoro'
-        elif new_engine == "fish15":
-            self.settings.fish_speech_path = os.path.join(APP_DIR, "fish-speech-1.5")
-            self.settings.checkpoint_name = "checkpoints/fish-speech-1.5"
-            self.settings.engine = 'fish15'
-        else:
+        self.settings.engine = new_engine
+        if new_engine in FISH_ENGINE_CONFIG:
+            ckpt_folder, _repo, _needs_token = FISH_ENGINE_CONFIG[new_engine]
             self.settings.fish_speech_path = os.path.join(APP_DIR, "fish-speech")
-            self.settings.checkpoint_name = "checkpoints/fish-speech-1.4"
-            self.settings.engine = 'fish14'
+            self.settings.checkpoint_name = f"checkpoints/{ckpt_folder}"
         self.settings.save()
 
-        # For Fish Speech, check if models are present and download if not
-        if fs_version and not is_fish_speech_ready(fs_version):
-            download = messagebox.askyesno(
-                "Download Required",
-                f"Fish-Speech {fs_version} models are not installed (~1.5 GB).\n\n"
-                "Download now? FishTalk will restart when complete.",
-            )
-            if not download:
-                # Revert setting
-                self.settings.engine = getattr(self.settings, '_prev_engine', 'kokoro')
-                self.settings.save()
-                self._update_engine_dropdown()
-                return
-
-            # Show download progress in status bar and run in background
-            dest = os.path.join(APP_DIR, "fish-speech" if fs_version == "1.4" else "fish-speech-1.5")
-
-            def _on_progress(msg, _frac=None):
-                self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
-
-            def _download():
-                ok = setup_fish_speech(dest_dir=dest, on_progress=_on_progress, version=fs_version)
-                if ok:
-                    self.root.after(0, lambda: self.update_tts_status(
-                        f"✅ Fish-Speech {fs_version} ready — restarting…", COLORS["success"]
-                    ))
-                    self.root.after(1500, self._restart_app)
+        # Fish Speech engines — check presence, download on first use
+        if new_engine in FISH_ENGINE_CONFIG:
+            if not is_fish_speech_ready(new_engine):
+                _ckpt_folder, _hf_repo, needs_token = FISH_ENGINE_CONFIG[new_engine]
+                if needs_token:
+                    # Show HF token dialog; it handles download + restart on success
+                    self._show_hf_token_dialog(new_engine, prev_engine)
+                    return
                 else:
-                    self.root.after(0, lambda: self.update_tts_status(
-                        f"❌ Download failed — check your connection", COLORS["danger"]
-                    ))
-                    self.root.after(0, self._update_engine_dropdown)
+                    # fish14 — no account required
+                    download = messagebox.askyesno(
+                        "Download Required",
+                        f"Fish-Speech 1.4 models are not installed (~1.5 GB).\n\n"
+                        "Download now? FishTalk will restart when complete.",
+                    )
+                    if not download:
+                        self.settings.engine = prev_engine
+                        self.settings.save()
+                        self._update_engine_dropdown()
+                        return
 
-            threading.Thread(target=_download, daemon=True, name="FishDownload").start()
+                    def _on_progress(msg, _frac=None):
+                        self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+
+                    def _download(_eng=new_engine):
+                        ok = setup_fish_speech(engine=_eng, on_progress=_on_progress)
+                        if ok:
+                            self.root.after(0, lambda: self.update_tts_status(
+                                "✅ Fish-Speech 1.4 ready — restarting…", COLORS["success"]
+                            ))
+                            self.root.after(1500, self._restart_app)
+                        else:
+                            self.root.after(0, lambda: self.update_tts_status(
+                                "❌ Download failed — check your connection", COLORS["danger"]
+                            ))
+                            self.root.after(0, self._update_engine_dropdown)
+
+                    threading.Thread(target=_download, daemon=True, name="FishDownload").start()
+                    return
+
+            # Models already present — just restart
+            confirm = messagebox.askyesno(
+                "Restart Required",
+                f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+            )
+            if confirm:
+                self._restart_app()
+            else:
+                self._update_engine_dropdown()
             return
 
-        # For Kokoro, check if model files are present and download if not
-        if new_engine == "kokoro" and not is_kokoro_ready():
-            download = messagebox.askyesno(
-                "Download Required",
-                "Kokoro model files are not installed (~330 MB).\n\n"
-                "Download now? FishTalk will restart when complete.",
-            )
-            if not download:
-                self.settings.engine = getattr(self.settings, '_prev_engine', 'fish14')
-                self.settings.save()
-                self._update_engine_dropdown()
+        # Kokoro — check presence, download if missing
+        if new_engine == "kokoro":
+            if not is_kokoro_ready():
+                download = messagebox.askyesno(
+                    "Download Required",
+                    "Kokoro model files are not installed (~330 MB).\n\n"
+                    "Download now? FishTalk will restart when complete.",
+                )
+                if not download:
+                    self.settings.engine = prev_engine
+                    self.settings.save()
+                    self._update_engine_dropdown()
+                    return
+
+                def _on_progress(msg, _frac=None):
+                    self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+
+                def _download_kokoro():
+                    ok = setup_kokoro(on_progress=_on_progress)
+                    if ok:
+                        self.root.after(0, lambda: self.update_tts_status(
+                            "✅ Kokoro models ready — restarting…", COLORS["success"]
+                        ))
+                        self.root.after(1500, self._restart_app)
+                    else:
+                        self.root.after(0, lambda: self.update_tts_status(
+                            "❌ Download failed — check your connection", COLORS["danger"]
+                        ))
+                        self.root.after(0, self._update_engine_dropdown)
+
+                threading.Thread(target=_download_kokoro, daemon=True, name="KokoroDownload").start()
                 return
 
-            def _on_progress(msg, _frac=None):
-                self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+            confirm = messagebox.askyesno(
+                "Restart Required",
+                f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+            )
+            if confirm:
+                self._restart_app()
+            else:
+                self._update_engine_dropdown()
 
-            def _download_kokoro():
-                ok = setup_kokoro(on_progress=_on_progress)
-                if ok:
-                    self.root.after(0, lambda: self.update_tts_status(
-                        "✅ Kokoro models ready — restarting…", COLORS["success"]
-                    ))
-                    self.root.after(1500, self._restart_app)
-                else:
-                    self.root.after(0, lambda: self.update_tts_status(
-                        "❌ Download failed — check your connection", COLORS["danger"]
-                    ))
-                    self.root.after(0, self._update_engine_dropdown)
+    def _show_hf_token_dialog(self, engine: str, prev_engine: str):
+        """Show a dialog prompting the user for their HuggingFace token to download a gated model."""
+        from utils import setup_fish_speech, FISH_ENGINE_CONFIG
+        import webbrowser
 
-            threading.Thread(target=_download_kokoro, daemon=True, name="KokoroDownload").start()
-            return
+        _ckpt_folder, hf_repo, _needs_token = FISH_ENGINE_CONFIG[engine]
+        engine_display = "S1 Mini" if engine == "s1mini" else "S1 Full"
+        model_size = "~2.5 GB" if engine == "s1mini" else "~6 GB"
 
-        # Models present — just restart
-        confirm = messagebox.askyesno(
-            "Restart Required",
-            f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title(f"HuggingFace Token Required — {engine_display}")
+        dialog.geometry("520x400")
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLORS["bg_card"])
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"Download {engine_display} ({model_size})",
+            font=(FONT_FAMILY, 16, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(pady=(24, 4))
+
+        ctk.CTkLabel(
+            dialog,
+            text=(
+                f"This model is hosted on HuggingFace and requires you to\n"
+                f"agree to its license and provide an access token.\n\n"
+                f"1. Click the link below to visit the model page\n"
+                f"2. Log in and click \"Agree\" to accept the license\n"
+                f"3. Go to huggingface.co/settings/tokens and create a token\n"
+                f"4. Paste it below"
+            ),
+            font=(FONT_FAMILY, 12),
+            text_color=COLORS["text_secondary"],
+            justify="left",
+        ).pack(padx=24, pady=(0, 8))
+
+        link_btn = ctk.CTkButton(
+            dialog,
+            text=f"Open Model Page: {hf_repo}",
+            font=(FONT_FAMILY, 12),
+            fg_color="transparent",
+            text_color=COLORS["accent"],
+            hover_color=COLORS["bg_card_hover"],
+            command=lambda: webbrowser.open(f"https://huggingface.co/{hf_repo}"),
         )
-        if confirm:
-            self._restart_app()
-        else:
+        link_btn.pack(padx=24, pady=(0, 12))
+
+        ctk.CTkLabel(
+            dialog,
+            text="HuggingFace Token:",
+            font=(FONT_FAMILY, 12),
+            text_color=COLORS["text_primary"],
+            anchor="w",
+        ).pack(padx=24, fill="x")
+
+        token_entry = ctk.CTkEntry(
+            dialog,
+            placeholder_text="hf_...",
+            font=(FONT_FAMILY, 12),
+            fg_color=COLORS["bg_input"],
+            show="*",
+        )
+        token_entry.pack(padx=24, fill="x", pady=(4, 4))
+
+        # Pre-fill if we already have a saved token
+        saved_token = getattr(self.settings, 'hf_token', '')
+        if saved_token:
+            token_entry.insert(0, saved_token)
+
+        status_label = ctk.CTkLabel(
+            dialog, text="", font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"]
+        )
+        status_label.pack(padx=24)
+
+        def _cancel():
+            self.settings.engine = prev_engine
+            self.settings.save()
             self._update_engine_dropdown()
+            dialog.destroy()
+
+        def _start_download():
+            token = token_entry.get().strip()
+            if not token:
+                status_label.configure(text="Please enter a token.", text_color=COLORS["danger"])
+                return
+            self.settings.hf_token = token
+            self.settings.save()
+            download_btn.configure(state="disabled", text="Downloading…")
+            status_label.configure(text="Starting download…", text_color=COLORS["warning"])
+
+            def _on_progress(msg, _frac=None):
+                dialog.after(0, lambda m=msg: status_label.configure(
+                    text=m, text_color=COLORS["warning"]
+                ))
+
+            def _download(_eng=engine, _tok=token):
+                ok = setup_fish_speech(engine=_eng, on_progress=_on_progress, hf_token=_tok)
+                if ok:
+                    dialog.after(0, lambda: status_label.configure(
+                        text=f"✅ {engine_display} ready — restarting…", text_color=COLORS["success"]
+                    ))
+                    dialog.after(1500, lambda: (dialog.destroy(), self._restart_app()))
+                else:
+                    dialog.after(0, lambda: status_label.configure(
+                        text="❌ Download failed — check token or connection.", text_color=COLORS["danger"]
+                    ))
+                    dialog.after(0, lambda: download_btn.configure(state="normal", text="Retry"))
+
+            threading.Thread(target=_download, daemon=True, name="HFDownload").start()
+
+        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_row.pack(fill="x", padx=24, pady=(12, 20))
+
+        ctk.CTkButton(
+            btn_row,
+            text="Cancel",
+            width=100,
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
+            command=_cancel,
+        ).pack(side="left")
+
+        download_btn = ctk.CTkButton(
+            btn_row,
+            text=f"Save Token & Download",
+            width=180,
+            fg_color=COLORS["accent"],
+            command=_start_download,
+        )
+        download_btn.pack(side="right")
 
     def _restart_app(self):
         """Save settings and restart the process."""
@@ -3182,13 +3486,13 @@ class FishTalkUI:
     def _update_engine_dropdown(self):
         """Revert the engine dropdown to match the saved setting."""
         _eng = getattr(self.settings, 'engine', 'kokoro')
-        if _eng == 'kokoro':
-            label = "Kokoro — Fast(best) No Cloning (1-2Gb Ram)"
-        elif _eng == 'fish15':
-            label = "Fish-Speech 1.5 — High W/Cloning (8+Gb Ram)"
-        else:
-            label = "Fish-Speech 1.4 — Medium W/Cloning (1-4Gb Ram)"
-        self.engine_var.set(label)
+        _eng_to_option = {
+            "kokoro": "Kokoro — Fast, No Cloning (1-2 GB RAM)",
+            "fish14": "Fish-Speech 1.4 — Voice Cloning, No Account (1-4 GB RAM)",
+            "s1mini": "S1 Mini — Voice Cloning, HF Account Required (2-4 GB RAM)",
+            "s1":     "S1 Full — High Quality Cloning, HF Account Required (6-8 GB RAM)",
+        }
+        self.engine_var.set(_eng_to_option.get(_eng, _eng_to_option["kokoro"]))
 
 
     def _browse_fish_path(self):
