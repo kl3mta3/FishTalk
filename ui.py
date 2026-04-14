@@ -95,6 +95,9 @@ class FishTalkUI:
         self._is_paused = False
         self._playback_stream = None
 
+        # Single-item convert queue (Option A — items waiting for their turn)
+        self._single_item_queue = []   # list of playlist indices to process in order
+
         # Audio playback
         self._audio_data = None
         self._audio_sr = None
@@ -184,6 +187,58 @@ class FishTalkUI:
         self.tabview.configure(command=self._on_tab_changed)
 
     # ==================================================================
+    # Tooltip helper
+    # ==================================================================
+
+    @staticmethod
+    def _make_tooltip(widget, text: str):
+        """Attach a themed tooltip to *widget* that appears after a short hover delay."""
+        tip_win = None
+        _after_id = None
+
+        def _show(event=None):
+            nonlocal tip_win, _after_id
+            _after_id = None
+            if tip_win:
+                return
+            x = widget.winfo_rootx() + 10
+            y = widget.winfo_rooty() + widget.winfo_height() + 4
+            tip_win = tk.Toplevel(widget)
+            tip_win.wm_overrideredirect(True)
+            tip_win.wm_geometry(f"+{x}+{y}")
+            tip_win.configure(bg="#1a1a2e")
+            tk.Label(
+                tip_win, text=text,
+                background="#1a1a2e", foreground="#c8c8e8",
+                font=("Segoe UI", 9), padx=7, pady=4,
+                relief="flat",
+            ).pack()
+
+        def _schedule(event=None):
+            nonlocal _after_id
+            _cancel(None)
+            _after_id = widget.after(550, _show)
+
+        def _cancel(event=None):
+            nonlocal tip_win, _after_id
+            if _after_id:
+                try:
+                    widget.after_cancel(_after_id)
+                except Exception:
+                    pass
+                _after_id = None
+            if tip_win:
+                try:
+                    tip_win.destroy()
+                except Exception:
+                    pass
+                tip_win = None
+
+        widget.bind("<Enter>", _schedule, add="+")
+        widget.bind("<Leave>", _cancel, add="+")
+        widget.bind("<ButtonPress>", _cancel, add="+")
+
+    # ==================================================================
     # TAB 1: Read Aloud (TTS)
     # ==================================================================
 
@@ -228,60 +283,19 @@ class FishTalkUI:
         controls = ctk.CTkFrame(tab, fg_color="transparent")
         controls.pack(fill="x", padx=10, pady=5)
 
-        # Voice selector
-        voice_frame = ctk.CTkFrame(controls, fg_color="transparent")
-        voice_frame.pack(side="left", padx=(0, 15))
-
-        ctk.CTkLabel(
-            voice_frame,
-            text="Voice",
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_secondary"],
-        ).pack(anchor="w")
-
-        # --- Voice selector (context-sensitive) ---
+        # --- Voice variable (hidden — each playlist item has its own voice dropdown) ---
         is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
-
         if is_kokoro:
-            # Kokoro mode: show preset voice dropdown
             kokoro_display_names = list(KOKORO_VOICES.keys())
             saved_kokoro_id = getattr(self.settings, 'kokoro_voice', DEFAULT_VOICE)
-            # Find display name matching saved voice ID
             saved_display = next(
                 (k for k, v in KOKORO_VOICES.items() if v == saved_kokoro_id),
                 kokoro_display_names[0]
             )
             self.tts_voice_var = ctk.StringVar(value=saved_display)
-            self.tts_voice_menu = ctk.CTkOptionMenu(
-                voice_frame,
-                values=kokoro_display_names,
-                variable=self.tts_voice_var,
-                width=200,
-                fg_color=COLORS["bg_input"],
-                button_color=COLORS["accent"],
-                button_hover_color=COLORS["accent_hover"],
-                dropdown_fg_color=COLORS["bg_card"],
-                dropdown_hover_color=COLORS["bg_card_hover"],
-                font=(FONT_FAMILY, 12),
-                command=self._on_kokoro_voice_change,
-            )
         else:
-            # Fish-Speech mode: show cloned voice profiles
             voice_names = self.voices.get_voice_names()
             self.tts_voice_var = ctk.StringVar(value=voice_names[0] if voice_names else "Default (Random)")
-            self.tts_voice_menu = ctk.CTkOptionMenu(
-                voice_frame,
-                values=voice_names if voice_names else ["Default (Random)"],
-                variable=self.tts_voice_var,
-                width=180,
-                fg_color=COLORS["bg_input"],
-                button_color=COLORS["accent"],
-                button_hover_color=COLORS["accent_hover"],
-                dropdown_fg_color=COLORS["bg_card"],
-                dropdown_hover_color=COLORS["bg_card_hover"],
-                font=(FONT_FAMILY, 12),
-            )
-        self.tts_voice_menu.pack()
 
         # Speed slider
         speed_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -370,51 +384,20 @@ class FishTalkUI:
             text_color=COLORS["text_primary"],
         ).pack(side="left")
 
-        # Transport buttons — right side of header
-        hdr_btn = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 7, "height": 32, "width": 90}
-
-        self.btn_save_mp3 = ctk.CTkButton(
-            playlist_header,
-            text="💾 Save",
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            command=self._tts_save_mp3,
-            **hdr_btn,
-        )
-        self.btn_save_mp3.pack(side="right", padx=(4, 0))
-
-        self.btn_stop = ctk.CTkButton(
-            playlist_header,
-            text="⏹ Stop",
-            fg_color=COLORS["danger"],
-            hover_color="#d43d62",
-            command=self._tts_stop,
-            **hdr_btn,
-        )
-        self.btn_stop.pack(side="right", padx=(4, 0))
-
-        self.btn_pause = ctk.CTkButton(
-            playlist_header,
-            text="⏸ Pause",
-            fg_color=COLORS["warning"],
-            hover_color="#e6bc5c",
-            text_color="#1a1a2e",
-            command=self._tts_pause,
-            **hdr_btn,
-        )
-        self.btn_pause.pack(side="right", padx=(4, 0))
-
+        # Read All button — only batch control in the header now
         self.btn_play = ctk.CTkButton(
             playlist_header,
-            text="▶ Read",
+            text="▶ Read All",
             fg_color=COLORS["success"],
             hover_color="#05b890",
+            font=(FONT_FAMILY, 12, "bold"),
+            corner_radius=7, height=32, width=100,
             command=self._tts_play,
-            **hdr_btn,
         )
         self.btn_play.pack(side="right", padx=(4, 0))
+        self._make_tooltip(self.btn_play, "Convert and play all items in the playlist")
 
-        # Work Silent + Auto Save toggles — between title and buttons
+        # Work Silent + Auto Save toggles
         self.silent_mode_var = ctk.BooleanVar(value=getattr(self.settings, 'silent_mode', False))
         silent_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
         silent_frame.pack(side="right", padx=(0, 16))
@@ -479,49 +462,103 @@ class FishTalkUI:
         )
         self.tts_status.pack(anchor="w", padx=15)
 
-        # ── Bottom selection bar ─────────────────────────────────────────
+        # ── Bottom action bar ────────────────────────────────────────────
         sel_bar = ctk.CTkFrame(tab, fg_color="transparent")
         sel_bar.pack(fill="x", padx=15, pady=(5, 10))
 
-        sel_btn = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 8, "height": 34}
+        _big  = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 8, "height": 34}
+        _mini = {"font": (FONT_FAMILY, 13),         "corner_radius": 6, "height": 34, "width": 36}
+        _util = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 8, "height": 34}
 
-        ctk.CTkButton(
-            sel_bar, text="🔊  TTS Selected",
+        # TTS Selected + its Pause / Stop
+        _btn = ctk.CTkButton(
+            sel_bar, text="🔊 TTS Selected",
             fg_color=COLORS["success"], hover_color="#05b890",
-            command=self._tts_selected,
-            width=140, **sel_btn,
-        ).pack(side="left", padx=(0, 6))
+            command=self._tts_selected, width=140, **_big,
+        )
+        _btn.pack(side="left", padx=(0, 2))
+        self._make_tooltip(_btn, "Convert selected items to speech")
 
-        ctk.CTkButton(
-            sel_bar, text="▶  Play Selected",
+        self.btn_pause = ctk.CTkButton(
+            sel_bar, text="⏸",
+            fg_color=COLORS["warning"], hover_color="#e6bc5c",
+            text_color="#1a1a2e",
+            command=self._tts_pause, **_mini,
+        )
+        self.btn_pause.pack(side="left", padx=(0, 2))
+        self._make_tooltip(self.btn_pause, "Pause conversion")
+
+        self.btn_stop = ctk.CTkButton(
+            sel_bar, text="⏹",
+            fg_color=COLORS["danger"], hover_color="#d43d62",
+            command=self._tts_stop, **_mini,
+        )
+        self.btn_stop.pack(side="left", padx=(0, 12))
+        self._make_tooltip(self.btn_stop, "Stop / cancel conversion")
+
+        # Play Selected + its Pause / Stop
+        _btn = ctk.CTkButton(
+            sel_bar, text="▶ Play Selected",
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            command=self._play_selected,
-            width=140, **sel_btn,
-        ).pack(side="left", padx=(0, 16))
+            command=self._play_selected, width=140, **_big,
+        )
+        _btn.pack(side="left", padx=(0, 2))
+        self._make_tooltip(_btn, "Play audio for selected items")
 
-        ctk.CTkButton(
+        _btn = ctk.CTkButton(
+            sel_bar, text="⏸",
+            fg_color=COLORS["warning"], hover_color="#e6bc5c",
+            text_color="#1a1a2e",
+            command=self._stop_preview, **_mini,
+        )
+        _btn.pack(side="left", padx=(0, 2))
+        self._make_tooltip(_btn, "Pause playback")
+
+        _btn = ctk.CTkButton(
+            sel_bar, text="⏹",
+            fg_color=COLORS["danger"], hover_color="#d43d62",
+            command=self._stop_preview, **_mini,
+        )
+        _btn.pack(side="left", padx=(0, 12))
+        self._make_tooltip(_btn, "Stop playback")
+
+        # Save Selected
+        self.btn_save_mp3 = ctk.CTkButton(
+            sel_bar, text="💾 Save Selected",
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=self._tts_save_mp3, width=140, **_big,
+        )
+        self.btn_save_mp3.pack(side="left", padx=(0, 16))
+        self._make_tooltip(self.btn_save_mp3, "Export selected items as MP3")
+
+        # Selection helpers
+        _btn = ctk.CTkButton(
             sel_bar, text="☑ All",
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
-            command=self._select_all,
-            width=70, **sel_btn,
-        ).pack(side="left", padx=(0, 4))
+            command=self._select_all, width=60, **_util,
+        )
+        _btn.pack(side="left", padx=(0, 4))
+        self._make_tooltip(_btn, "Select all items")
 
-        ctk.CTkButton(
+        _btn = ctk.CTkButton(
             sel_bar, text="☐ None",
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
-            command=self._deselect_all,
-            width=70, **sel_btn,
-        ).pack(side="left", padx=(0, 4))
+            command=self._deselect_all, width=60, **_util,
+        )
+        _btn.pack(side="left", padx=(0, 4))
+        self._make_tooltip(_btn, "Deselect all items")
 
-        ctk.CTkButton(
-            sel_bar, text="🗑 Clear",
+        # Clear Selected — far right
+        _btn = ctk.CTkButton(
+            sel_bar, text="🗑 Clear Selected",
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
-            command=self._tts_clear_playlist,
-            width=80, **sel_btn,
-        ).pack(side="right")
+            command=self._tts_clear_playlist, width=120, **_util,
+        )
+        _btn.pack(side="right")
+        self._make_tooltip(_btn, "Remove selected items from the playlist")
 
     # ==================================================================
     # TAB 2: Transcribe (STT)
@@ -902,11 +939,11 @@ class FishTalkUI:
         self._refresh_tts_voice_dropdown()
 
     def _refresh_tts_voice_dropdown(self):
-        """Update the voice dropdown in the TTS tab."""
+        """Update the voice variable default when voices change (per-item dropdowns rebuilt via _rebuild_playlist_ui)."""
         names = self.voices.get_voice_names()
-        self.tts_voice_menu.configure(values=names)
         if self.tts_voice_var.get() not in names:
             self.tts_voice_var.set(names[0] if names else "Default (Random)")
+        self._rebuild_playlist_ui()
 
     # ==================================================================
     # TAB 4: Settings
@@ -1238,6 +1275,89 @@ class FishTalkUI:
         )
         self.stt_status_label.pack(side="right", padx=15, pady=12)
 
+        # --- AI Features ---
+        section_header(main, "🤖  AI Features (Qwen 0.5B)")
+
+        from tag_suggester import is_llm_available as _llm_avail, is_qwen_model_ready as _qwen_ready
+
+        # llama-cpp-python row
+        llama_row = setting_row(main)
+        ctk.CTkLabel(
+            llama_row,
+            text="llama-cpp-python",
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
+
+        ctk.CTkLabel(
+            llama_row,
+            text="Required for AI tags, grammar check, Assisted Flow",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(0, 10), pady=12)
+
+        _llama_installed = _llm_avail()
+        self.llama_status_label = ctk.CTkLabel(
+            llama_row,
+            text="✅  Installed" if _llama_installed else "❌  Not installed",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["success"] if _llama_installed else COLORS["danger"],
+        )
+        self.llama_status_label.pack(side="right", padx=(5, 15), pady=12)
+
+        if not _llama_installed:
+            self.llama_install_btn = ctk.CTkButton(
+                llama_row,
+                text="⬇  Install",
+                width=90,
+                height=28,
+                corner_radius=6,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                font=(FONT_FAMILY, 11),
+                command=self._install_llama_cpp,
+            )
+            self.llama_install_btn.pack(side="right", padx=(0, 5), pady=12)
+
+        # Qwen model row
+        qwen_row = setting_row(main)
+        ctk.CTkLabel(
+            qwen_row,
+            text="Qwen 2.5 0.5B Model",
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
+
+        ctk.CTkLabel(
+            qwen_row,
+            text="~400 MB — downloaded on first use",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(0, 10), pady=12)
+
+        _qwen_installed = _qwen_ready()
+        self.qwen_status_label = ctk.CTkLabel(
+            qwen_row,
+            text="✅  Ready" if _qwen_installed else ("⏳  Install llama-cpp first" if not _llama_installed else "❌  Not downloaded"),
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["success"] if _qwen_installed else COLORS["text_muted"],
+        )
+        self.qwen_status_label.pack(side="right", padx=(5, 15), pady=12)
+
+        # Install log (hidden until install starts)
+        self._llama_log_row = setting_row(main)
+        self._llama_log_label = ctk.CTkLabel(
+            self._llama_log_row,
+            text="",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_secondary"],
+            justify="left",
+            anchor="w",
+            wraplength=560,
+        )
+        self._llama_log_label.pack(fill="x", padx=15, pady=8)
+        self._llama_log_row.pack_forget()  # hidden until needed
+
         # --- Credits ---
         section_header(main, "ℹ  Credits")
 
@@ -1304,6 +1424,7 @@ class FishTalkUI:
                 "voice": default_voice,
                 "blend_voice": "",
                 "blend_ratio": 0.5,
+                "assisted_flow": False,
             }
             self._playlist_items.append(item)
             self._rebuild_playlist_ui()
@@ -1333,14 +1454,23 @@ class FishTalkUI:
         else:
             voice_options = self.voices.get_voice_names() or ["Default (Random)"]
 
+        from tag_suggester import is_llm_available as _llm_avail
+        _af_llm_ok = _llm_avail()
+
         for idx, item in enumerate(self._playlist_items):
             is_active = (idx == self._current_playing)
-            row_color = COLORS["accent"] if is_active else COLORS["bg_card"]
+            is_queued = (idx in self._single_item_queue)
+            if is_active:
+                row_color = COLORS["accent"]
+            elif is_queued:
+                row_color = COLORS["bg_card_hover"]
+            else:
+                row_color = COLORS["bg_card"]
             row = ctk.CTkFrame(
                 self.playlist_frame,
                 fg_color=row_color,
                 corner_radius=6,
-                height=36,
+                height=44,
             )
             row.pack(fill="x", pady=2, padx=4)
             row.pack_propagate(False)
@@ -1370,10 +1500,17 @@ class FishTalkUI:
             # ── Status dot ───────────────────────────────────────────────
             audio_path = item.get("audio_path", "")
             has_audio = bool(audio_path and os.path.isfile(audio_path))
-            dot = "✅" if has_audio else ("⏳" if is_active else "○")
+            if has_audio:
+                dot = "✅"
+            elif is_active:
+                dot = "⏳"
+            elif is_queued:
+                dot = "🕐"
+            else:
+                dot = "○"
             ctk.CTkLabel(
                 row, text=dot, font=(FONT_FAMILY, 11), width=20,
-            ).pack(side="left", padx=(0, 4))
+            ).pack(side="left", padx=(0, 2))
 
             # ── Index + filename (double-click opens editor) ─────────────
             name_lbl = ctk.CTkLabel(
@@ -1384,7 +1521,7 @@ class FishTalkUI:
                 anchor="w",
                 cursor="hand2",
             )
-            name_lbl.pack(side="left", padx=(0, 4))
+            name_lbl.pack(side="left", padx=(0, 2))
             name_lbl.bind("<Double-Button-1>", lambda e, i=idx: self._open_editor(i))
 
             ctk.CTkLabel(
@@ -1392,35 +1529,10 @@ class FishTalkUI:
                 text=f"({len(item['text']):,})",
                 font=(FONT_FAMILY, 10),
                 text_color=COLORS["text_muted"],
-            ).pack(side="left")
+            ).pack(side="left", padx=(0, 6))
 
-            # ── Right: remove button ─────────────────────────────────────
-            ctk.CTkButton(
-                row,
-                text="✕",
-                width=26, height=22, corner_radius=4,
-                fg_color=COLORS["danger"], hover_color="#d43d62",
-                font=(FONT_FAMILY, 11),
-                command=lambda i=idx: self._tts_remove_item(i),
-            ).pack(side="right", padx=(0, 6))
-
-            # ── Preview play/pause ───────────────────────────────────────
-            if has_audio:
-                is_previewing = (idx == self._preview_idx and not self._preview_paused)
-                ctk.CTkButton(
-                    row,
-                    text="⏸" if is_previewing else "▶",
-                    width=26, height=22, corner_radius=4,
-                    fg_color=COLORS["success"] if is_previewing else COLORS["bg_input"],
-                    hover_color="#05b890" if is_previewing else COLORS["bg_card_hover"],
-                    border_color=COLORS["success"], border_width=1,
-                    font=(FONT_FAMILY, 11),
-                    command=lambda i=idx: self._preview_item(i),
-                ).pack(side="right", padx=(0, 3))
-
-            # ── Per-item voice dropdown ──────────────────────────────────
+            # ── Per-item voice dropdown (after title) ────────────────────
             item_voice = item.get("voice", voice_options[0] if voice_options else "")
-            # Validate stored voice is still in current options
             if item_voice not in voice_options:
                 item_voice = voice_options[0] if voice_options else item_voice
 
@@ -1434,7 +1546,7 @@ class FishTalkUI:
                 values=voice_options,
                 variable=voice_var,
                 width=150,
-                height=24,
+                height=26,
                 fg_color=COLORS["bg_input"],
                 button_color=COLORS["accent"],
                 button_hover_color=COLORS["accent_hover"],
@@ -1442,27 +1554,32 @@ class FishTalkUI:
                 dropdown_hover_color=COLORS["bg_card_hover"],
                 font=(FONT_FAMILY, 11),
                 command=lambda v, i=idx, var=voice_var: _on_voice_change(v, i, var),
-            ).pack(side="right", padx=(0, 4))
+            ).pack(side="left", padx=(0, 2))
 
-            # ── Kokoro blend voice (shown only in Kokoro mode) ───────────
+            # ── Kokoro blend voice + ratio slider ────────────────────────
             if is_kokoro:
-                blend_options = ["— no blend —"] + voice_options
-                item_blend = item.get("blend_voice", "") or "— no blend —"
+                ctk.CTkLabel(
+                    row, text="+", font=(FONT_FAMILY, 10),
+                    text_color=COLORS["text_muted"], width=10,
+                ).pack(side="left")
+
+                blend_options = ["— blend —"] + voice_options
+                item_blend = item.get("blend_voice", "") or "— blend —"
                 if item_blend not in blend_options:
-                    item_blend = "— no blend —"
+                    item_blend = "— blend —"
 
                 blend_var = ctk.StringVar(value=item_blend)
 
                 def _on_blend_change(v, i=idx, bvar=blend_var):
                     val = bvar.get()
-                    self._playlist_items[i]["blend_voice"] = "" if val == "— no blend —" else val
+                    self._playlist_items[i]["blend_voice"] = "" if val == "— blend —" else val
 
                 ctk.CTkOptionMenu(
                     row,
                     values=blend_options,
                     variable=blend_var,
-                    width=130,
-                    height=24,
+                    width=110,
+                    height=26,
                     fg_color=COLORS["bg_input"],
                     button_color=COLORS["bg_card_hover"],
                     button_hover_color=COLORS["accent"],
@@ -1470,12 +1587,158 @@ class FishTalkUI:
                     dropdown_hover_color=COLORS["bg_card_hover"],
                     font=(FONT_FAMILY, 10),
                     command=lambda v, i=idx, bvar=blend_var: _on_blend_change(v, i, bvar),
-                ).pack(side="right", padx=(0, 2))
+                ).pack(side="left", padx=(0, 2))
 
+                # Blend ratio slider + % label
+                blend_ratio_val = item.get("blend_ratio", 0.5)
+
+                blend_ratio_label = ctk.CTkLabel(
+                    row,
+                    text=f"{int(blend_ratio_val * 100)}%",
+                    font=(FONT_FAMILY, 9),
+                    text_color=COLORS["text_muted"],
+                    width=28,
+                )
+
+                def _on_blend_ratio(v, i=idx, lbl=blend_ratio_label):
+                    ratio = round(float(v), 2)
+                    self._playlist_items[i]["blend_ratio"] = ratio
+                    lbl.configure(text=f"{int(ratio * 100)}%")
+
+                _blend_slider = ctk.CTkSlider(
+                    row,
+                    from_=0.1, to=0.9,
+                    number_of_steps=8,
+                    width=72,
+                    height=14,
+                    progress_color=COLORS["accent"],
+                    button_color=COLORS["accent_light"],
+                    button_hover_color=COLORS["accent"],
+                    command=lambda v, i=idx, lbl=blend_ratio_label: _on_blend_ratio(v, i, lbl),
+                )
+                _blend_slider.set(blend_ratio_val)
+                _blend_slider.pack(side="left", padx=(0, 1))
+                self._make_tooltip(_blend_slider, "Blend ratio — left = more primary voice, right = more blend voice")
+                blend_ratio_label.pack(side="left", padx=(0, 4))
+
+            # ── Assisted Flow toggle ─────────────────────────────────────
+            af_var = ctk.BooleanVar(value=item.get("assisted_flow", False) if _af_llm_ok else False)
+
+            def _on_af_toggle(v=af_var, i=idx):
+                self._playlist_items[i]["assisted_flow"] = v.get()
+
+            ctk.CTkLabel(
+                row, text="AI",
+                font=(FONT_FAMILY, 9),
+                text_color=COLORS["accent_light"] if _af_llm_ok else COLORS["text_muted"],
+                width=18,
+            ).pack(side="left", padx=(4, 1))
+
+            _af_switch = ctk.CTkSwitch(
+                row,
+                text="",
+                variable=af_var,
+                command=_on_af_toggle,
+                state="normal" if _af_llm_ok else "disabled",
+                width=36,
+                height=20,
+                switch_width=32,
+                switch_height=16,
+                progress_color=COLORS["accent"],
+                button_color=COLORS["accent_light"] if _af_llm_ok else COLORS["text_muted"],
+                button_hover_color=COLORS["accent"],
+            )
+            _af_switch.pack(side="left", padx=(0, 2))
+            self._make_tooltip(_af_switch, "Assisted Flow — AI enhances text phrasing before TTS")
+
+            if not _af_llm_ok:
                 ctk.CTkLabel(
-                    row, text="+", font=(FONT_FAMILY, 10),
-                    text_color=COLORS["text_muted"], width=10,
-                ).pack(side="right")
+                    row,
+                    text="⚠ Settings",
+                    font=(FONT_FAMILY, 8),
+                    text_color=COLORS["text_muted"],
+                ).pack(side="left", padx=(0, 2))
+            else:
+                ctk.CTkFrame(row, width=2, fg_color="transparent").pack(side="left")
+
+            # ── Per-item buttons (icon-only, 32×32) ──────────────────────
+            _ib = {"width": 32, "height": 32, "corner_radius": 5, "font": (FONT_FAMILY, 14)}
+
+            # Always rightmost: remove ✕
+            _rb = ctk.CTkButton(
+                row, text="✕",
+                fg_color=COLORS["danger"], hover_color="#d43d62",
+                command=lambda i=idx: self._tts_remove_item(i),
+                **_ib,
+            )
+            _rb.pack(side="right", padx=(0, 6))
+            self._make_tooltip(_rb, "Remove item from playlist")
+
+            # After audio exists (near ✕): play/pause 🔊, save 📁
+            if has_audio:
+                is_previewing = (idx == self._preview_idx and not self._preview_paused)
+                _sb = ctk.CTkButton(
+                    row, text="📁",
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    border_color=COLORS["border"], border_width=1,
+                    command=lambda i=idx: self._save_item_audio(i),
+                    **_ib,
+                )
+                _sb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_sb, "Save audio to file")
+                _pb = ctk.CTkButton(
+                    row, text="⏸" if is_previewing else "▶",
+                    fg_color=COLORS["success"] if is_previewing else COLORS["bg_input"],
+                    hover_color="#05b890" if is_previewing else COLORS["bg_card_hover"],
+                    border_color=COLORS["success"], border_width=1,
+                    command=lambda i=idx: self._preview_item(i),
+                    **_ib,
+                )
+                _pb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_pb, "Pause preview" if is_previewing else "Play audio preview")
+
+            # After voice dropdowns:
+            #  Active  → ⏸ pause  ⊘ cancel
+            #  Queued  → ⊘ remove from queue
+            #  Idle    → ▶ convert  (accent = not done, muted = re-convert)
+            if is_active:
+                _pb = ctk.CTkButton(
+                    row, text="⏸",
+                    fg_color=COLORS["warning"], hover_color="#e6bc5c",
+                    text_color="#1a1a2e",
+                    command=self._tts_pause,
+                    **_ib,
+                )
+                _pb.pack(side="left", padx=(4, 2))
+                self._make_tooltip(_pb, "Pause conversion")
+                _cb = ctk.CTkButton(
+                    row, text="⊘",
+                    fg_color=COLORS["danger"], hover_color="#d43d62",
+                    command=lambda i=idx: self._cancel_item(i),
+                    **_ib,
+                )
+                _cb.pack(side="left", padx=(0, 2))
+                self._make_tooltip(_cb, "Cancel conversion")
+            elif is_queued:
+                _cb = ctk.CTkButton(
+                    row, text="⊘",
+                    fg_color=COLORS["danger"], hover_color="#d43d62",
+                    command=lambda i=idx: self._cancel_item(i),
+                    **_ib,
+                )
+                _cb.pack(side="left", padx=(4, 2))
+                self._make_tooltip(_cb, "Remove from queue")
+            else:
+                _cvt = ctk.CTkButton(
+                    row, text="▶",
+                    fg_color=COLORS["accent"] if not has_audio else COLORS["bg_input"],
+                    hover_color=COLORS["accent_hover"] if not has_audio else COLORS["bg_card_hover"],
+                    border_color=COLORS["accent"], border_width=1,
+                    command=lambda i=idx: self._process_single_item(i),
+                    **_ib,
+                )
+                _cvt.pack(side="left", padx=(4, 2))
+                self._make_tooltip(_cvt, "Re-convert to speech" if has_audio else "Convert to speech")
 
     def _open_editor(self, index: int):
         """Open the text editor window for a playlist item."""
@@ -1489,6 +1752,108 @@ class FishTalkUI:
             engine=engine,
             on_save=self._rebuild_playlist_ui,
         )
+
+    def _process_single_item(self, index: int):
+        """Convert/generate TTS for one item — queues automatically if another is running."""
+        if index < 0 or index >= len(self._playlist_items):
+            return
+        item = self._playlist_items[index]
+        has_audio = bool(item.get("audio_path") and os.path.isfile(item.get("audio_path", "")))
+
+        # If already in queue or actively running, treat ▶ as a dequeue/cancel request
+        if index == self._current_playing:
+            return  # already running — ⊘ handles cancel
+        if index in self._single_item_queue:
+            self._single_item_queue.remove(index)
+            self._rebuild_playlist_ui()
+            return
+
+        if has_audio:
+            if not messagebox.askyesno(
+                "Re-generate",
+                f"'{item['name']}' already has audio.\nRe-generate it?",
+                parent=self.root,
+            ):
+                return
+
+        # If something is running, add to queue and bail
+        if self._is_playing:
+            self._single_item_queue.append(index)
+            self._rebuild_playlist_ui()
+            self.tts_status.configure(text=f"Queued: {item['name']}")
+            return
+
+        # Nothing running — start immediately
+        if not self.tts.is_loaded:
+            self.tts_status.configure(text="Loading model…")
+            for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):
+                btn.configure(state="disabled")
+            self._ensure_tts_loaded(lambda: self._process_single_item(index))
+            return
+
+        self._is_playing = True
+        self._current_playing = index
+        self._tts_queue = []
+        self._rebuild_playlist_ui()
+        self._play_current_item(advance_fn=self._finish_single_item)
+
+    def _finish_single_item(self):
+        """Called when a single-item conversion finishes — auto-advances queue."""
+        self._is_playing = False
+        self._current_playing = -1
+        if self._single_item_queue:
+            next_idx = self._single_item_queue.pop(0)
+            self.root.after(200, lambda: self._process_single_item(next_idx))
+        else:
+            self._rebuild_playlist_ui()
+            self.tts_status.configure(text="Done")
+
+    def _cancel_item(self, index: int):
+        """Cancel an actively generating item or remove it from the queue."""
+        if index == self._current_playing:
+            # Stop generation, then advance queue
+            self.tts.cancel()
+            self._is_playing = False
+            self._current_playing = -1
+            if self._single_item_queue:
+                next_idx = self._single_item_queue.pop(0)
+                self.root.after(200, lambda: self._process_single_item(next_idx))
+            else:
+                self._rebuild_playlist_ui()
+                self.tts_status.configure(text="Cancelled")
+        elif index in self._single_item_queue:
+            self._single_item_queue.remove(index)
+            self._rebuild_playlist_ui()
+            self.tts_status.configure(text=f"Removed from queue: {self._playlist_items[index]['name']}")
+
+    def _save_item_audio(self, index: int):
+        """Save the generated audio for a single playlist item to a user-chosen path."""
+        if index < 0 or index >= len(self._playlist_items):
+            return
+        item = self._playlist_items[index]
+        src = item.get("audio_path", "")
+        if not src or not os.path.isfile(src):
+            messagebox.showwarning("Save Audio", "No generated audio for this item yet.", parent=self.root)
+            return
+        from tkinter.filedialog import asksaveasfilename
+        stem = os.path.splitext(item["name"])[0]
+        dest = asksaveasfilename(
+            parent=self.root,
+            defaultextension=".mp3",
+            filetypes=[("MP3 audio", "*.mp3"), ("WAV audio", "*.wav"), ("All files", "*.*")],
+            initialfile=f"{stem}.mp3",
+            title="Save audio as…",
+        )
+        if not dest:
+            return
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_wav(src)
+            fmt = os.path.splitext(dest)[1].lstrip(".").lower() or "mp3"
+            audio.export(dest, format=fmt)
+            self.tts_status.configure(text=f"Saved: {os.path.basename(dest)}")
+        except Exception as exc:
+            messagebox.showerror("Save Audio", f"Export failed:\n{exc}", parent=self.root)
 
     def _tts_remove_item(self, index: int):
         if self._preview_idx == index:
@@ -1623,6 +1988,7 @@ class FishTalkUI:
     def _tts_clear_playlist(self):
         self._playlist_items.clear()
         self._current_playing = -1
+        self._single_item_queue.clear()
         self._rebuild_playlist_ui()
 
     def _on_speed_change(self, value):
@@ -1883,7 +2249,7 @@ class FishTalkUI:
         except Exception as exc:
             logger.error("Play Selected stream error: %s", exc)
 
-    def _play_current_item(self, advance_fn=None):
+    def _play_current_item(self, advance_fn=None, _text_override=None):
         """Generate and play the current playlist item."""
         if self._current_playing < 0 or self._current_playing >= len(self._playlist_items):
             self._is_playing = False
@@ -1893,6 +2259,34 @@ class FishTalkUI:
             return
 
         item = self._playlist_items[self._current_playing]
+
+        # ── Assisted Flow: preprocess text through Qwen before TTS ──────
+        if _text_override is None and item.get("assisted_flow", False):
+            from tag_suggester import is_llm_available, is_qwen_model_ready
+            if is_llm_available() and is_qwen_model_ready():
+                self.tts_status.configure(text=f"AI Flow: enhancing {item['name']}…")
+                self._rebuild_playlist_ui()
+
+                _af_engine = getattr(self.settings, 'engine', 'fish14')
+
+                def _preprocess(_eng=_af_engine):
+                    try:
+                        from tag_suggester import enhance_for_tts
+                        enhanced = enhance_for_tts(item["text"], engine=_eng)
+                        if not enhanced or not enhanced.strip():
+                            enhanced = item["text"]
+                    except Exception as exc:
+                        logger.warning("Assisted Flow failed: %s", exc)
+                        enhanced = item["text"]
+                    self.root.after(0, lambda t=enhanced: self._play_current_item(
+                        advance_fn=advance_fn, _text_override=t
+                    ))
+
+                threading.Thread(target=_preprocess, daemon=True, name="AssistedFlow").start()
+                return
+
+        text_to_use = _text_override if _text_override is not None else item["text"]
+
         self.tts_status.configure(text=f"Generating: {item['name']}...")
         self._rebuild_playlist_ui()
 
@@ -1903,6 +2297,7 @@ class FishTalkUI:
             profile = self.voices.get_voice(voice_name)
 
         speed = self.speed_slider.get()
+        cadence = self.cad_slider.get() / 100.0  # 0.0–1.0
 
         # Compute a deterministic output path in our managed temp folder.
         os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
@@ -2043,7 +2438,7 @@ class FishTalkUI:
             blend_name = item.get("blend_voice", "")
             blend_voice_id = KOKORO_VOICES.get(blend_name, blend_name) if blend_name else ""
             self.tts.generate(
-                text=item["text"],
+                text=text_to_use,
                 voice_id=voice_id,
                 blend_voice=blend_voice_id,
                 blend_ratio=item.get("blend_ratio", 0.5),
@@ -2056,11 +2451,12 @@ class FishTalkUI:
             )
         else:
             self.tts.generate(
-                text=item["text"],
+                text=text_to_use,
                 reference_wav=profile["wav_path"] if profile else None,
                 reference_tokens=None,
                 prompt_text=profile["prompt_text"] if profile else None,
                 speed=speed,
+                cadence=cadence,
                 output_path=_output_path,
                 on_progress=on_progress,
                 on_chunk=on_chunk,
@@ -2136,11 +2532,12 @@ class FishTalkUI:
         self.tts_status.configure(text="Paused")
 
     def _tts_stop(self):
-        """Stop playback and cancel any pending generation."""
+        """Stop playback, cancel any pending generation, and clear the queue."""
         self._stop_preview()
         self._is_playing = False
         self._is_paused = False
         self._current_playing = -1
+        self._single_item_queue.clear()
         self.tts.cancel()
         try:
             import sounddevice as sd
@@ -2152,36 +2549,51 @@ class FishTalkUI:
         self._rebuild_playlist_ui()
 
     def _tts_save_mp3(self):
-        """Export the last generated audio to MP3."""
-        if not is_ffmpeg_available():
-            messagebox.showwarning(
-                "FishTalk",
-                "ffmpeg is not installed.\nPlease install ffmpeg or place ffmpeg.exe in the bin/ folder."
-            )
+        """Export all selected items that have audio to a chosen folder."""
+        ready = [
+            it for it in self._playlist_items
+            if it.get("selected", True)
+            and it.get("audio_path")
+            and os.path.isfile(it["audio_path"])
+        ]
+        if not ready:
+            messagebox.showinfo("Save Selected", "No generated audio found for selected items.\nGenerate speech first.", parent=self.root)
             return
 
-        src = self._last_wav_path
-        if not src or not os.path.isfile(src):
-            messagebox.showinfo("FishTalk", "No audio to export. Generate speech first.")
-            return
-
-        path = filedialog.asksaveasfilename(
-            title="Save as MP3",
-            defaultextension=".mp3",
-            filetypes=[("MP3 files", "*.mp3"), ("WAV files", "*.wav")],
+        dest_dir = filedialog.askdirectory(
+            title=f"Save {len(ready)} audio file(s) to folder…",
             initialdir=os.path.expanduser("~/Documents"),
+            parent=self.root,
         )
-        if not path:
+        if not dest_dir:
             return
 
-        try:
-            export_mp3(src, path)
-            # Remove temp WAV now that it has been permanently saved
-            self._delete_temp_wav(src)
-            self._last_wav_path = None
-            messagebox.showinfo("FishTalk", f"Saved to:\n{path}")
-        except Exception as exc:
-            messagebox.showerror("Error", f"Export failed:\n{exc}")
+        errors = []
+        saved = 0
+        for it in ready:
+            src = it["audio_path"]
+            stem = os.path.splitext(it["name"])[0]
+            dest = os.path.join(dest_dir, stem + ".mp3")
+            # Avoid overwriting: append index if name already taken
+            counter = 1
+            while os.path.exists(dest):
+                dest = os.path.join(dest_dir, f"{stem}_{counter}.mp3")
+                counter += 1
+            try:
+                from pydub import AudioSegment
+                AudioSegment.from_wav(src).export(dest, format="mp3")
+                saved += 1
+            except Exception as exc:
+                errors.append(f"{it['name']}: {exc}")
+
+        if errors:
+            messagebox.showwarning(
+                "Save Selected",
+                f"Saved {saved}/{len(ready)} files.\n\nErrors:\n" + "\n".join(errors),
+                parent=self.root,
+            )
+        else:
+            self.tts_status.configure(text=f"✅ Saved {saved} file(s) to {os.path.basename(dest_dir)}")
 
     # ==================================================================
     # EVENT HANDLERS — STT Tab
@@ -2800,6 +3212,77 @@ class FishTalkUI:
                 text=f"❌  {result['message']}",
                 text_color=COLORS["danger"],
             )
+
+    def _install_llama_cpp(self):
+        """Install llama-cpp-python from the Settings tab with inline log output."""
+        from tag_suggester import install_llama_cpp, download_qwen_model, is_qwen_model_ready
+
+        # Show log row and disable button
+        self._llama_log_row.pack(fill="x", padx=10, pady=2)
+        if hasattr(self, "llama_install_btn"):
+            self.llama_install_btn.configure(state="disabled", text="Installing…")
+        self._llama_log_label.configure(text="Starting install…", text_color=COLORS["text_secondary"])
+
+        def _on_line(text):
+            self.root.after(0, lambda t=text: self._llama_log_label.configure(text=t))
+
+        def _on_complete(ok, msg):
+            def _ui():
+                if ok:
+                    self.llama_status_label.configure(text="✅  Installed", text_color=COLORS["success"])
+                    self._llama_log_label.configure(
+                        text="✅  Installed. Downloading Qwen model next…",
+                        text_color=COLORS["success"],
+                    )
+                    if hasattr(self, "llama_install_btn"):
+                        self.llama_install_btn.pack_forget()
+                    # Now download Qwen if not already present
+                    if not is_qwen_model_ready():
+                        self._download_qwen_from_settings()
+                    else:
+                        self.qwen_status_label.configure(text="✅  Ready", text_color=COLORS["success"])
+                        self._rebuild_playlist_ui()
+                else:
+                    self.llama_status_label.configure(text="❌  Install failed", text_color=COLORS["danger"])
+                    self._llama_log_label.configure(
+                        text=f"❌  {msg}",
+                        text_color=COLORS["danger"],
+                    )
+                    if hasattr(self, "llama_install_btn"):
+                        self.llama_install_btn.configure(state="normal", text="⬇  Retry")
+            self.root.after(0, _ui)
+
+        install_llama_cpp(on_line=_on_line, on_complete=_on_complete)
+
+    def _download_qwen_from_settings(self):
+        """Download Qwen model and update the settings tab status labels."""
+        from tag_suggester import download_qwen_model
+
+        self.qwen_status_label.configure(text="⬇  Downloading…", text_color=COLORS["warning"])
+
+        def _progress(status, frac):
+            self.root.after(0, lambda s=status: self._llama_log_label.configure(
+                text=s, text_color=COLORS["text_secondary"]
+            ))
+
+        def _complete(ok, msg):
+            def _ui():
+                if ok:
+                    self.qwen_status_label.configure(text="✅  Ready", text_color=COLORS["success"])
+                    self._llama_log_label.configure(
+                        text="✅  Qwen model ready. AI Features are now available.",
+                        text_color=COLORS["success"],
+                    )
+                    self._rebuild_playlist_ui()
+                else:
+                    self.qwen_status_label.configure(text="❌  Download failed", text_color=COLORS["danger"])
+                    self._llama_log_label.configure(
+                        text=f"❌  {msg}",
+                        text_color=COLORS["danger"],
+                    )
+            self.root.after(0, _ui)
+
+        download_qwen_model(on_progress=_progress, on_complete=_complete)
 
     def _on_tab_changed(self):
         """Handle tab switching for Memory Saver mode."""

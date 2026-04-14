@@ -302,10 +302,15 @@ class FishTalkApp:
                      text_color="#3a3a5a").pack(side="bottom", pady=10)
 
         def update_splash(status, progress):
+            """Thread-safe splash update — schedules on the main thread via after()."""
             try:
-                splash_status.configure(text=status)
-                splash_progress.set(progress)
-                main_root.update_idletasks()
+                def _do(_s=status, _p=progress):
+                    try:
+                        splash_status.configure(text=_s)
+                        splash_progress.set(_p)
+                    except Exception:
+                        pass
+                main_root.after(0, _do)
             except Exception:
                 pass
 
@@ -403,6 +408,49 @@ class FishTalkApp:
                         device=device,
                         checkpoint_name=self.settings.checkpoint_name,
                     )
+
+                # --- Auto-install AI features (llama-cpp-python + Qwen model) ---
+                from tag_suggester import (
+                    is_llm_available as _llm_avail,
+                    is_qwen_model_ready as _qwen_ready,
+                    install_llama_cpp as _install_llama,
+                    download_qwen_model as _dl_qwen,
+                )
+
+                if not _llm_avail():
+                    update_splash("Installing AI features (llama-cpp-python ~60 MB)…", 0.65)
+                    _llama_done = threading.Event()
+                    _llama_ok = [False]
+
+                    def _on_llama_complete(ok, msg, _ev=_llama_done, _res=_llama_ok):
+                        _res[0] = ok
+                        _ev.set()
+
+                    _install_llama(on_complete=_on_llama_complete)
+                    _llama_done.wait()
+                    if _llama_ok[0]:
+                        logger.info("llama-cpp-python installed successfully.")
+                    else:
+                        logger.warning("llama-cpp-python install failed; AI features unavailable.")
+
+                if _llm_avail() and not _qwen_ready():
+                    update_splash("Downloading Qwen AI model (~400 MB)…", 0.75)
+                    _qwen_done = threading.Event()
+                    _qwen_ok = [False]
+
+                    def _on_qwen_progress(status, frac):
+                        update_splash(status, 0.75 + frac * 0.2)
+
+                    def _on_qwen_complete(ok, msg, _ev=_qwen_done, _res=_qwen_ok):
+                        _res[0] = ok
+                        _ev.set()
+
+                    _dl_qwen(on_progress=_on_qwen_progress, on_complete=_on_qwen_complete)
+                    _qwen_done.wait()
+                    if _qwen_ok[0]:
+                        logger.info("Qwen model downloaded successfully.")
+                    else:
+                        logger.warning("Qwen model download failed; AI features unavailable.")
 
                 update_splash("Ready!", 1.0)
                 time.sleep(0.5)

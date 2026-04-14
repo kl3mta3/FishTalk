@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls -la /c/Users/Kenny/source/repos/Fishtalk/*.py)"
+      "Bash(ls -la /c/Users/Kenny/source/repos/Fishtalk/*.py)",
+      "Bash(python -c \"import kokoro_onnx; import inspect; print\\(inspect.signature\\(kokoro_onnx.Kokoro.create\\)\\)\")"
     ]
   }
 }

@@ -305,6 +305,7 @@ class TTSEngine:
         reference_tokens: np.ndarray = None,
         prompt_text: str = None,
         speed: float = 1.0,
+        cadence: float = 0.0,
         output_path: str = None,
         on_progress: Callable[[str, float], None] = None,
         on_chunk: Callable[[np.ndarray, int], None] = None,
@@ -350,7 +351,7 @@ class TTSEngine:
                     on_progress("Preparing generation...", 0.1)
 
                 # Normalize text — preserve Fish Speech emotion/prosody tags
-                text = normalize_text(text, engine="fish")
+                text_norm = normalize_text(text, engine="fish")
 
                 # Prepare prompt tokens for voice cloning
                 prompt_tokens_list = None
@@ -422,7 +423,7 @@ class TTSEngine:
                         model=self._model,
                         device=self.device,
                         decode_one_token=self._decode_one_token,
-                        text=text,
+                        text=text_norm,
                         num_samples=1,
                         max_new_tokens=0,
                         top_p=self.top_p,
@@ -473,8 +474,32 @@ class TTSEngine:
                 if on_progress:
                     on_progress("Assembling audio...", 0.8)
 
-                audio_np = np.concatenate(audio_chunks)
+                sample_rate = self._codec.spec_transform.sample_rate
 
+                # Apply cadence: insert silence between decoded chunks
+                # cadence 0.0 = no pauses, 1.0 = ~600 ms pause between chunks
+                if cadence > 0.01 and len(audio_chunks) > 1:
+                    pause_samples = int(sample_rate * 0.6 * cadence)
+                    silence = np.zeros(pause_samples, dtype=np.float32)
+                    spaced = []
+                    for i, chunk in enumerate(audio_chunks):
+                        spaced.append(chunk)
+                        if i < len(audio_chunks) - 1:
+                            spaced.append(silence)
+                    audio_np = np.concatenate(spaced)
+                else:
+                    audio_np = np.concatenate(audio_chunks)
+
+                # Apply speed via resampling (pitch shifts slightly, acceptable for TTS)
+                if abs(speed - 1.0) > 0.02:
+                    import torchaudio as _ta
+                    _t = torch.from_numpy(audio_np).unsqueeze(0)
+                    _t = _ta.functional.resample(
+                        _t,
+                        orig_freq=int(sample_rate * speed),
+                        new_freq=sample_rate,
+                    )
+                    audio_np = _t.squeeze(0).numpy()
 
                 # Save output
                 if output_path is None:
@@ -483,7 +508,6 @@ class TTSEngine:
                         f"fishtalk_tts_{int(time.time())}.wav"
                     )
 
-                sample_rate = self._codec.spec_transform.sample_rate
                 sf.write(output_path, audio_np, sample_rate)
                 logger.info("TTS output saved: %s", output_path)
 

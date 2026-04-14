@@ -19,11 +19,17 @@ import customtkinter as ctk
 from ui import COLORS, FONT_FAMILY
 from tag_suggester import (
     FISH_TAGS,
+    TONE_OPTIONS,
     suggest_tags,
     generate_tags,
+    grammar_check,
+    enhance_for_tts,
+    rewrite_tone,
     is_llm_available,
     is_qwen_model_ready,
+    install_llama_cpp,
     download_qwen_model,
+    prewarm_llm,
     unload_llm,
 )
 
@@ -47,7 +53,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         self.item = item
         self.engine = engine
         self.on_save = on_save
-        self._grammar_tool = None   # LanguageTool instance (lazy)
+        self._spell_checker = None  # SpellChecker instance (lazy-loaded)
         self._tag_thread: threading.Thread = None
 
         self.title(f"Edit — {item.get('name', 'Untitled')}")
@@ -58,6 +64,16 @@ class TextEditorWindow(ctk.CTkToplevel):
         self.focus_force()
 
         self._build_ui()
+
+        # Pre-warm Qwen in background so AI buttons respond instantly
+        self.protocol("WM_DELETE_WINDOW", self._on_editor_close)
+        if is_llm_available() and is_qwen_model_ready():
+            threading.Thread(target=prewarm_llm, daemon=True, name="QwenPrewarm").start()
+
+    def _on_editor_close(self):
+        """Unload Qwen to free RAM when the editor is closed."""
+        threading.Thread(target=unload_llm, daemon=True, name="QwenUnload").start()
+        self.destroy()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -109,20 +125,33 @@ class TextEditorWindow(ctk.CTkToplevel):
         self._textbox.insert("1.0", self.item.get("text", ""))
         self._textbox.bind("<KeyRelease>", self._on_text_change)
 
-        # Right panel
-        right = ctk.CTkScrollableFrame(
+        # Right panel — tabbed
+        tabs = ctk.CTkTabview(
             content,
             fg_color=COLORS["bg_card"],
+            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            width=240,
             corner_radius=8,
-            width=220,
-            scrollbar_button_color=COLORS["accent"],
         )
-        right.grid(row=0, column=1, sticky="nsew")
+        tabs.grid(row=0, column=1, sticky="nsew")
 
         if is_fish:
-            self._build_fish_tag_panel(right)
+            tabs.add("🏷 Tags")
+            self._build_fish_tag_panel(tabs.tab("🏷 Tags"))
         else:
-            self._build_kokoro_panel(right)
+            tabs.add("ℹ Kokoro")
+            self._build_kokoro_panel(tabs.tab("ℹ Kokoro"))
+
+        tabs.add("✨ Enhance")
+        self._build_enhance_tab(tabs.tab("✨ Enhance"))
+
+        tabs.add("🎭 Tone")
+        self._build_tone_tab(tabs.tab("🎭 Tone"))
 
         # ── Bottom action bar ─────────────────────────────────────────
         self._build_bottom_bar()
@@ -195,6 +224,93 @@ class TextEditorWindow(ctk.CTkToplevel):
             text_color=COLORS["text_secondary"],
             justify="left",
         ).pack(anchor="w", padx=10)
+
+    def _build_enhance_tab(self, parent):
+        ctk.CTkLabel(
+            parent, text="Improve for TTS",
+            font=(FONT_FAMILY, 12, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+
+        ctk.CTkLabel(
+            parent,
+            text=(
+                "Rewrites the text to sound\n"
+                "more natural when spoken:\n\n"
+                "• Adds natural pauses\n"
+                "• Breaks long sentences\n"
+                "• Expands abbreviations\n"
+                "• Improves TTS pacing\n\n"
+                "Result shown as a preview\n"
+                "— accept or discard."
+            ),
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_secondary"],
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            parent,
+            text="✨ Enhance for TTS",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 11, "bold"),
+            height=30,
+            corner_radius=6,
+            command=self._enhance_for_tts,
+        ).pack(fill="x", padx=10, pady=(0, 4))
+
+    def _build_tone_tab(self, parent):
+        ctk.CTkLabel(
+            parent, text="Rewrite Tone",
+            font=(FONT_FAMILY, 12, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+
+        ctk.CTkLabel(
+            parent,
+            text="Choose a tone and preview\na rewrite. Accept or discard.",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_secondary"],
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        self._tone_var = ctk.StringVar(value=TONE_OPTIONS[0])
+        ctk.CTkOptionMenu(
+            parent,
+            values=TONE_OPTIONS,
+            variable=self._tone_var,
+            fg_color=COLORS["bg_input"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            height=28,
+        ).pack(fill="x", padx=10, pady=(0, 6))
+
+        ctk.CTkButton(
+            parent,
+            text="🎭 Preview Rewrite",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 11, "bold"),
+            height=30,
+            corner_radius=6,
+            command=self._rewrite_tone,
+        ).pack(fill="x", padx=10, pady=(0, 4))
+
+        ctk.CTkLabel(
+            parent,
+            text=(
+                "The original text is never\n"
+                "changed unless you click\n"
+                "Accept in the preview."
+            ),
+            font=(FONT_FAMILY, 9),
+            text_color=COLORS["text_muted"],
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(6, 0))
 
     def _build_bottom_bar(self):
         bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=52)
@@ -347,36 +463,87 @@ class TextEditorWindow(ctk.CTkToplevel):
         self.destroy()
 
     def _grammar_check(self):
-        self._set_status("Running grammar check…", COLORS["warning"])
-        threading.Thread(target=self._run_grammar_check, daemon=True).start()
+        """Grammar + spell check using Qwen 0.5B — same model as Generate Tags."""
+        if not is_llm_available():
+            self._show_install_dialog(
+                title="Install AI Grammar Checker",
+                message=(
+                    "Grammar Check uses the same Qwen 0.5B model as Generate Tags (~60 MB package + ~400 MB model).\n"
+                    "After install, the model will also be downloaded.\n\n"
+                    "Install now?"
+                ),
+                next_step=self._ensure_qwen_then_grammar,
+                install_fn=self._run_llama_install,
+            )
+            return
+        self._ensure_qwen_then_grammar()
 
-    def _run_grammar_check(self):
+    def _ensure_qwen_then_grammar(self):
+        if not is_qwen_model_ready():
+            self._show_download_dialog(
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed for Grammar Check.\n\nDownload now?",
+                next_step=lambda: self._run_grammar_check_thread(use_llm=True),
+                download_fn=self._run_qwen_download,
+            )
+            return
+        self._run_grammar_check_thread(use_llm=True)
+
+    def _run_grammar_check_thread(self, use_llm: bool = True):
+        label = "grammar & spelling" if use_llm else "spelling"
+        self._set_status(f"Checking {label}…", COLORS["warning"])
+        threading.Thread(
+            target=self._run_grammar_check,
+            args=(use_llm,),
+            daemon=True,
+        ).start()
+
+    def _run_grammar_check(self, use_llm: bool = True):
         text = self._textbox.get("1.0", "end-1c")
         try:
-            import language_tool_python
-            if self._grammar_tool is None:
-                self.after(0, lambda: self._set_status("Loading LanguageTool (first run may take a moment)…", COLORS["warning"]))
-                self._grammar_tool = language_tool_python.LanguageTool("en-US")
-            matches = self._grammar_tool.check(text)
-            if not matches:
+            if use_llm:
+                def _progress(msg, _frac):
+                    self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
+
+                corrected = grammar_check(text, on_progress=_progress)
+                source = "Qwen grammar & spell check"
+            else:
+                corrected = self._spellcheck_fallback(text)
+                source = "Spell check (fallback)"
+
+            if corrected.strip() == text.strip():
                 self.after(0, lambda: self._set_status("✅ No issues found.", COLORS["success"]))
+                if use_llm:
+                    threading.Thread(target=unload_llm, daemon=True).start()
                 return
-            corrected = language_tool_python.utils.correct(text, matches)
-            def _apply():
-                self._textbox.delete("1.0", "end")
-                self._textbox.insert("1.0", corrected)
-                self._on_text_change()
-                self._set_status(f"✅ Fixed {len(matches)} issue(s).", COLORS["success"])
-            self.after(0, _apply)
-        except ImportError:
-            self.after(0, lambda: messagebox.showwarning(
-                "Grammar Check",
-                "language_tool_python is not installed.\n\nInstall it with:\n  pip install language-tool-python",
-                parent=self,
-            ))
-            self.after(0, lambda: self._set_status(""))
+
+            def _show(orig=text, corr=corrected, src=source):
+                self._show_diff_dialog(orig, corr, source=src)
+                self._set_status("")
+                if use_llm:
+                    threading.Thread(target=unload_llm, daemon=True).start()
+            self.after(0, _show)
+
         except Exception as exc:
-            self.after(0, lambda: self._set_status(f"Grammar check error: {exc}", COLORS["danger"]))
+            err = repr(exc) if not str(exc) or str(exc) == "None" else str(exc)
+            self.after(0, lambda e=err: self._set_status(f"Check error: {e}", COLORS["danger"]))
+
+    def _spellcheck_fallback(self, text: str) -> str:
+        """Basic spell correction using pyspellchecker when Qwen is unavailable."""
+        import re
+        from spellchecker import SpellChecker
+        if self._spell_checker is None:
+            self._spell_checker = SpellChecker()
+        spell = self._spell_checker
+
+        corrected = text
+        for m in reversed(list(re.finditer(r"\b[a-z]{3,}\b", text))):
+            word = m.group()
+            if spell.unknown([word]):
+                suggestion = spell.correction(word)
+                if suggestion and suggestion != word:
+                    corrected = corrected[:m.start()] + suggestion + corrected[m.end():]
+        return corrected
 
     def _suggest_tags(self):
         text = self._textbox.get("1.0", "end-1c")
@@ -389,21 +556,36 @@ class TextEditorWindow(ctk.CTkToplevel):
             self._set_status(f"Error: {exc}", COLORS["danger"])
 
     def _generate_tags_ai(self):
+        """Entry point for Generate Tags button — auto-installs deps if needed."""
         if not is_llm_available():
-            messagebox.showwarning(
-                "AI Tagger",
-                "llama-cpp-python is not installed.\n\nInstall it with:\n  pip install llama-cpp-python",
-                parent=self,
-            )
-            return
-        if not is_qwen_model_ready():
-            messagebox.showinfo(
-                "AI Tagger",
-                "Qwen model not downloaded yet.\nUse the 'Download AI Model' button in the tag panel.",
-                parent=self,
+            self._show_install_dialog(
+                title="Install AI Tagger",
+                message=(
+                    "The AI tagger requires llama-cpp-python (~60 MB).\n"
+                    "After install, the Qwen 0.5B model (~400 MB) will also be downloaded.\n\n"
+                    "Install now?"
+                ),
+                next_step=self._ensure_qwen_then_generate,
+                install_fn=self._run_llama_install,
             )
             return
 
+        self._ensure_qwen_then_generate()
+
+    def _ensure_qwen_then_generate(self):
+        """Check model file; download if missing, then run generation."""
+        if not is_qwen_model_ready():
+            self._show_download_dialog(
+                title="Download Qwen 0.5B Model",
+                message="The Qwen 0.5B model (~400 MB) is needed for AI tagging.\n\nDownload now?",
+                next_step=self._run_generation,
+                download_fn=self._run_qwen_download,
+            )
+            return
+        self._run_generation()
+
+    def _run_generation(self):
+        """Run Qwen inference — both deps are confirmed present."""
         self._gen_btn.configure(state="disabled", text="🤖 Generating…")
         self._set_status("Loading Qwen model…", COLORS["warning"])
         text = self._textbox.get("1.0", "end-1c")
@@ -419,7 +601,6 @@ class TextEditorWindow(ctk.CTkToplevel):
                     self._show_diff_dialog(text, tagged, source="Qwen AI suggestions")
                     self._set_status("")
                     self._gen_btn.configure(state="normal", text="🤖 Generate Tags (AI)")
-                    # Unload model to free RAM after use
                     threading.Thread(target=unload_llm, daemon=True).start()
 
                 self.after(0, _show)
@@ -431,7 +612,96 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         threading.Thread(target=_worker, daemon=True, name="GenTags").start()
 
+    def _enhance_for_tts(self):
+        """Enhance tab: improve text for natural TTS delivery."""
+        if not is_llm_available():
+            self._show_install_dialog(
+                title="Install AI Model",
+                message="Enhance for TTS uses Qwen 0.5B (~60 MB package + ~400 MB model).\n\nInstall now?",
+                next_step=self._ensure_qwen_then_enhance,
+                install_fn=self._run_llama_install,
+            )
+            return
+        self._ensure_qwen_then_enhance()
+
+    def _ensure_qwen_then_enhance(self):
+        if not is_qwen_model_ready():
+            self._show_download_dialog(
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed.\n\nDownload now?",
+                next_step=self._run_enhance,
+                download_fn=self._run_qwen_download,
+            )
+            return
+        self._run_enhance()
+
+    def _run_enhance(self):
+        self._set_status("Enhancing for TTS…", COLORS["warning"])
+        text = self._textbox.get("1.0", "end-1c")
+
+        def _worker():
+            try:
+                def _progress(msg, _frac):
+                    self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
+                result = enhance_for_tts(text, engine=self.engine, on_progress=_progress)
+
+                def _show():
+                    self._show_diff_dialog(text, result, source="✨ Enhance for TTS")
+                    self._set_status("")
+                    threading.Thread(target=unload_llm, daemon=True).start()
+                self.after(0, _show)
+            except Exception as exc:
+                self.after(0, lambda e=str(exc): self._set_status(f"Error: {e}", COLORS["danger"]))
+
+        threading.Thread(target=_worker, daemon=True, name="EnhanceTTS").start()
+
+    def _rewrite_tone(self):
+        """Tone tab: rewrite text in the selected tone."""
+        if not is_llm_available():
+            self._show_install_dialog(
+                title="Install AI Model",
+                message="Tone Rewrite uses Qwen 0.5B (~60 MB package + ~400 MB model).\n\nInstall now?",
+                next_step=self._ensure_qwen_then_tone,
+                install_fn=self._run_llama_install,
+            )
+            return
+        self._ensure_qwen_then_tone()
+
+    def _ensure_qwen_then_tone(self):
+        if not is_qwen_model_ready():
+            self._show_download_dialog(
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed.\n\nDownload now?",
+                next_step=self._run_tone_rewrite,
+                download_fn=self._run_qwen_download,
+            )
+            return
+        self._run_tone_rewrite()
+
+    def _run_tone_rewrite(self):
+        tone = getattr(self, "_tone_var", None)
+        tone = tone.get() if tone else "Neutral"
+        self._set_status(f"Rewriting as {tone}…", COLORS["warning"])
+        text = self._textbox.get("1.0", "end-1c")
+
+        def _worker():
+            try:
+                def _progress(msg, _frac):
+                    self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
+                result = rewrite_tone(text, tone=tone, on_progress=_progress)
+
+                def _show():
+                    self._show_diff_dialog(text, result, source=f"🎭 Tone: {tone}")
+                    self._set_status("")
+                    threading.Thread(target=unload_llm, daemon=True).start()
+                self.after(0, _show)
+            except Exception as exc:
+                self.after(0, lambda e=str(exc): self._set_status(f"Error: {e}", COLORS["danger"]))
+
+        threading.Thread(target=_worker, daemon=True, name="ToneRewrite").start()
+
     def _download_qwen(self):
+        """Download button in the side panel — shows inline status."""
         self._set_status("Downloading Qwen model (~400 MB)…", COLORS["warning"])
 
         def _progress(msg, _frac):
@@ -447,6 +717,155 @@ class TextEditorWindow(ctk.CTkToplevel):
             self.after(0, _ui)
 
         download_qwen_model(on_progress=_progress, on_complete=_complete)
+
+    # ------------------------------------------------------------------
+    # Install / download progress dialogs
+    # ------------------------------------------------------------------
+
+    def _show_install_dialog(self, title, message, next_step, install_fn):
+        """Yes/No prompt → progress dialog → calls next_step on success."""
+        if not messagebox.askyesno(title, message, parent=self):
+            return
+        self._show_progress_dialog(
+            title=title,
+            start_fn=install_fn,
+            on_success=next_step,
+        )
+
+    def _show_download_dialog(self, title, message, next_step, download_fn):
+        """Yes/No prompt → progress dialog → calls next_step on success."""
+        if not messagebox.askyesno(title, message, parent=self):
+            return
+        self._show_progress_dialog(
+            title=title,
+            start_fn=download_fn,
+            on_success=next_step,
+        )
+
+    def _show_progress_dialog(self, title: str, start_fn, on_success):
+        """
+        Generic progress dialog with log output and indeterminate bar.
+        start_fn receives (on_line, on_complete) callbacks.
+        on_success() is called on the main thread if completed successfully.
+        """
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(title)
+        dlg.geometry("520x320")
+        dlg.configure(fg_color=COLORS["bg_dark"])
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        ctk.CTkLabel(
+            dlg, text=title,
+            font=(FONT_FAMILY, 13, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(pady=(16, 4))
+
+        bar = ctk.CTkProgressBar(
+            dlg,
+            progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_input"],
+            height=8, corner_radius=4, width=460,
+            mode="indeterminate",
+        )
+        bar.pack(pady=(4, 8))
+        bar.start()
+
+        log = ctk.CTkTextbox(
+            dlg,
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_secondary"],
+            font=(FONT_FAMILY, 10),
+            height=160, width=480,
+            corner_radius=6,
+            state="normal",
+        )
+        log.pack(padx=16, pady=(0, 8))
+
+        status_lbl = ctk.CTkLabel(
+            dlg, text="Working…",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+        )
+        status_lbl.pack()
+
+        close_btn = ctk.CTkButton(
+            dlg, text="Close", state="disabled",
+            fg_color=COLORS["success"], hover_color="#05b890",
+            font=(FONT_FAMILY, 12, "bold"), width=100, height=32,
+            command=dlg.destroy,
+        )
+        close_btn.pack(pady=(6, 12))
+
+        def _append(line: str):
+            def _ui():
+                log.configure(state="normal")
+                log.insert("end", line + "\n")
+                log.see("end")
+                log.configure(state="disabled")
+                status_lbl.configure(text=line[:80])
+            dlg.after(0, _ui)
+
+        def _done(ok: bool, msg: str):
+            def _ui():
+                bar.stop()
+                bar.configure(mode="determinate")
+                bar.set(1.0 if ok else 0.0)
+                bar.configure(progress_color=COLORS["success"] if ok else COLORS["danger"])
+                status_lbl.configure(
+                    text="✅ Complete!" if ok else f"❌ Failed: {msg}",
+                    text_color=COLORS["success"] if ok else COLORS["danger"],
+                )
+                close_btn.configure(state="normal")
+                if ok:
+                    dlg.after(800, dlg.destroy)
+                    dlg.after(900, on_success)
+            dlg.after(0, _ui)
+
+        start_fn(on_line=_append, on_complete=_done)
+
+    def _run_llama_install(self, on_line, on_complete):
+        install_llama_cpp(on_line=on_line, on_complete=on_complete)
+
+    def _run_spellchecker_install(self, on_line, on_complete):
+        import subprocess, sys, os
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        venv_pip = os.path.join(app_dir, "venv", "Scripts", "pip.exe")
+        pip_cmd = [venv_pip] if os.path.isfile(venv_pip) else [sys.executable, "-m", "pip"]
+        cmd = pip_cmd + ["install", "pyspellchecker", "--upgrade",
+                         "--quiet", "--progress-bar", "off"]
+        CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        def _worker():
+            try:
+                if on_line:
+                    on_line("Installing pyspellchecker…")
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True,
+                                        creationflags=CREATE_NO_WINDOW)
+                for raw in proc.stdout:
+                    if raw.strip() and on_line:
+                        on_line(raw.rstrip())
+                proc.wait()
+                if proc.returncode == 0:
+                    if on_complete:
+                        on_complete(True, "pyspellchecker installed.")
+                else:
+                    if on_complete:
+                        on_complete(False, f"pip exited with code {proc.returncode}")
+            except Exception as exc:
+                if on_complete:
+                    on_complete(False, str(exc))
+        import threading as _t
+        _t.Thread(target=_worker, daemon=True, name="SpellCheckInstall").start()
+
+    def _run_qwen_download(self, on_line, on_complete):
+        def _progress(msg, frac):
+            on_line(f"[{int(frac*100):3d}%] {msg}")
+
+        def _done(ok, msg):
+            on_complete(ok, msg)
+
+        download_qwen_model(on_progress=_progress, on_complete=_done)
 
     # ------------------------------------------------------------------
     # Diff / review dialog

@@ -275,21 +275,28 @@ class KokoroEngine:
     # Generate
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def build_blend_voice(voice_id: str, blend_voice: str = "", blend_ratio: float = 0.5) -> str:
+    def build_blend_voice(self, voice_id: str, blend_voice: str = "", blend_ratio: float = 0.5):
         """
-        Construct a Kokoro voice blend string.
+        Return a blended style vector (numpy array) for kokoro_onnx.create(), or
+        just the voice_id string when no blend is requested.
 
         blend_ratio is the weight of voice_id (0.0–1.0).
-        e.g. voice_id="af_sky", blend_voice="af_nicole", blend_ratio=0.7
-             → "af_sky.7+af_nicole.3"
+        kokoro_onnx.create() accepts either a str voice key or an NDArray style vector.
         """
-        if not blend_voice or blend_voice == voice_id:
+        if not blend_voice or blend_voice == voice_id or self._kokoro is None:
             return voice_id
-        ratio = max(0.1, min(0.9, blend_ratio))
-        w1 = round(ratio * 10)
-        w2 = 10 - w1
-        return f"{voice_id}.{w1}+{blend_voice}.{w2}"
+        try:
+            available = self._kokoro.get_voices()
+            if blend_voice not in available:
+                logger.warning("Blend voice '%s' not available, skipping blend", blend_voice)
+                return voice_id
+            ratio = max(0.0, min(1.0, blend_ratio))
+            style1 = self._kokoro.get_voice_style(voice_id)
+            style2 = self._kokoro.get_voice_style(blend_voice)
+            return (style1 * ratio + style2 * (1.0 - ratio)).astype(style1.dtype)
+        except Exception as exc:
+            logger.warning("Voice blend failed (%s), using single voice: %s", exc, voice_id)
+            return voice_id
 
     def generate(
         self,
@@ -332,7 +339,7 @@ class KokoroEngine:
                 from utils import normalize_text
 
                 # Normalize text — strip Fish Speech tags Kokoro doesn't understand
-                text = normalize_text(text, engine="kokoro")
+                text_norm = normalize_text(text, engine="kokoro")
 
                 if not self.is_loaded:
                     if on_progress:
@@ -342,25 +349,27 @@ class KokoroEngine:
                 if self._cancel_event.is_set():
                     return
 
-                # Validate voice ID and build blend string if requested
+                # Validate voice ID then build blend vector (or plain ID) if requested
                 available = self._kokoro.get_voices()
-                if voice_id not in available:
-                    logger.warning("Voice '%s' not found, using %s", voice_id, DEFAULT_VOICE)
-                    voice_id = DEFAULT_VOICE if DEFAULT_VOICE in available else available[0]
+                _vid = voice_id if voice_id in available else (DEFAULT_VOICE if DEFAULT_VOICE in available else available[0])
+                if _vid != voice_id:
+                    logger.warning("Voice '%s' not found, using %s", voice_id, _vid)
 
-                vid = self.build_blend_voice(voice_id, blend_voice, blend_ratio)
+                # blend_voice also needs to be a valid raw ID
+                _bv = blend_voice if blend_voice in available else ""
+                vid = self.build_blend_voice(_vid, _bv, blend_ratio)
                 logger.info("Kokoro voice: %s", vid)
 
                 # Split into sentences for real-time streaming
-                sentences = self._split_sentences(text)
+                sentences = self._split_sentences(text_norm)
                 if not sentences:
-                    sentences = [text]
+                    sentences = [text_norm]
 
                 total = len(sentences)
                 all_audio = []
                 sr = self.SAMPLE_RATE
 
-                logger.info("Kokoro: %d sentence(s) from %d chars", total, len(text))
+                logger.info("Kokoro: %d sentence(s) from %d chars", total, len(text_norm))
 
                 for i, sentence in enumerate(sentences):
                     if self._cancel_event.is_set():
