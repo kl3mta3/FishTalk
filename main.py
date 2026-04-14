@@ -248,7 +248,7 @@ class KoKoFishApp:
         if sys.platform == "win32":
             try:
                 import ctypes
-                myappid = "Fishtalk.LocalAIVoiceStudio.1.0"
+                myappid = "KoKoFish.LocalAIVoiceStudio.1.0"
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
             except Exception:
                 pass
