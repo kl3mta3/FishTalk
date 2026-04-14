@@ -227,16 +227,27 @@ FISH_ENGINE_CONFIG = {
     "s1":      ("openaudio-s1",      "fishaudio/openaudio-s1",      True),
 }
 
-# All Fish Speech engines share the same v1.4.3 code directory
-FISH_CODE_DIR_NAME = "fish-speech"
+# Fish14 uses the 1.4.3 code directory; OpenAudio S1/S1-Mini use fish-speech-latest
+FISH_CODE_DIR_NAME = "fish-speech"          # Fish-Speech 1.4 code
+FISH_CODE_DIR_OA   = "fish-speech-latest"   # OpenAudio S1/S1-Mini code
 FISH_CODE_URL = "https://github.com/fishaudio/fish-speech/archive/refs/tags/v1.4.3.zip"
+
+# Engines that use OpenAudio / fish-speech-latest code
+_OPENAUDIO_ENGINES = {"s1mini", "s1"}
+
+
+def _get_code_dir_name(engine: str) -> str:
+    """Return the correct code directory name for this engine."""
+    return FISH_CODE_DIR_OA if engine in _OPENAUDIO_ENGINES else FISH_CODE_DIR_NAME
 
 
 def is_fish_speech_ready(engine: str = "fish14") -> bool:
     """Return True if the Fish-Speech code and checkpoints for the engine are present."""
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    code_dir = os.path.join(app_dir, FISH_CODE_DIR_NAME)
+    code_dir = os.path.join(app_dir, _get_code_dir_name(engine))
     ckpt_name = FISH_ENGINE_CONFIG.get(engine, FISH_ENGINE_CONFIG["fish14"])[0]
+    # Checkpoints for OpenAudio engines live inside their own code dir; for Fish14
+    # they live inside the fish-speech 1.4 code dir.
     ckpt_dir  = os.path.join(code_dir, "checkpoints", ckpt_name)
 
     if not os.path.isdir(code_dir) or not os.listdir(code_dir):
@@ -271,47 +282,60 @@ def setup_fish_speech(engine: str = "fish14", on_progress=None, hf_token: str = 
     ckpt_name, hf_repo, needs_token = cfg
 
     app_dir  = os.path.dirname(os.path.abspath(__file__))
-    code_dir = os.path.join(app_dir, FISH_CODE_DIR_NAME)
+    is_openaudio = engine in _OPENAUDIO_ENGINES
+    code_dir = os.path.join(app_dir, _get_code_dir_name(engine))
     ckpt_dir = os.path.join(code_dir, "checkpoints", ckpt_name)
 
-    # --- Step 1: Fish-Speech code (shared across all engines) ---
-    if not os.path.isdir(code_dir) or not os.listdir(code_dir):
-        try:
-            if on_progress:
-                on_progress("Downloading Fish-Speech code (~20 MB)...", 0.05)
-            logger.info("Downloading Fish-Speech source from %s", FISH_CODE_URL)
-            tmp_zip = os.path.join(tempfile.gettempdir(), "fish_speech_src.zip")
-
-            def _hook(b, bs, total):
-                if on_progress and total > 0:
-                    frac = min(b * bs / total, 1.0) * 0.2
-                    on_progress(f"Downloading Fish-Speech code... {int(frac * 500)}%", frac)
-
-            urllib.request.urlretrieve(FISH_CODE_URL, tmp_zip, reporthook=_hook)
-            if on_progress:
-                on_progress("Extracting Fish-Speech code...", 0.22)
-
-            os.makedirs(code_dir, exist_ok=True)
-            with zipfile.ZipFile(tmp_zip, "r") as zf:
-                for member in zf.infolist():
-                    parts = member.filename.split("/", 1)
-                    if len(parts) < 2 or not parts[1]:
-                        continue
-                    target = os.path.join(code_dir, parts[1])
-                    if member.is_dir():
-                        os.makedirs(target, exist_ok=True)
-                    else:
-                        os.makedirs(os.path.dirname(target), exist_ok=True)
-                        with zf.open(member) as src, open(target, "wb") as dst:
-                            dst.write(src.read())
-            try:
-                os.remove(tmp_zip)
-            except OSError:
-                pass
-            logger.info("Fish-Speech code extracted to %s", code_dir)
-        except Exception as exc:
-            logger.error("Fish-Speech code download failed: %s", exc)
+    # --- Step 1: Fish-Speech code ---
+    # OpenAudio engines use fish-speech-latest which must already be present
+    # (it is not auto-downloadable from a public zip).
+    # Fish14 code is downloaded from GitHub if missing.
+    if is_openaudio:
+        if not os.path.isdir(code_dir) or not os.listdir(code_dir):
+            logger.error(
+                "OpenAudio code directory not found: %s. "
+                "Please clone fish-speech (latest) into that folder manually.",
+                code_dir,
+            )
             return False
+    else:
+        if not os.path.isdir(code_dir) or not os.listdir(code_dir):
+            try:
+                if on_progress:
+                    on_progress("Downloading Fish-Speech code (~20 MB)...", 0.05)
+                logger.info("Downloading Fish-Speech source from %s", FISH_CODE_URL)
+                tmp_zip = os.path.join(tempfile.gettempdir(), "fish_speech_src.zip")
+
+                def _hook(b, bs, total):
+                    if on_progress and total > 0:
+                        frac = min(b * bs / total, 1.0) * 0.2
+                        on_progress(f"Downloading Fish-Speech code... {int(frac * 500)}%", frac)
+
+                urllib.request.urlretrieve(FISH_CODE_URL, tmp_zip, reporthook=_hook)
+                if on_progress:
+                    on_progress("Extracting Fish-Speech code...", 0.22)
+
+                os.makedirs(code_dir, exist_ok=True)
+                with zipfile.ZipFile(tmp_zip, "r") as zf:
+                    for member in zf.infolist():
+                        parts = member.filename.split("/", 1)
+                        if len(parts) < 2 or not parts[1]:
+                            continue
+                        target = os.path.join(code_dir, parts[1])
+                        if member.is_dir():
+                            os.makedirs(target, exist_ok=True)
+                        else:
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
+                            with zf.open(member) as src, open(target, "wb") as dst:
+                                dst.write(src.read())
+                try:
+                    os.remove(tmp_zip)
+                except OSError:
+                    pass
+                logger.info("Fish-Speech code extracted to %s", code_dir)
+            except Exception as exc:
+                logger.error("Fish-Speech code download failed: %s", exc)
+                return False
 
     # --- Step 2: Model checkpoints ---
     has_weights = (

@@ -295,9 +295,28 @@ class KokoroEngine:
                 )
             logger.info("Loading Kokoro ONNX model from %s", KOKORO_ONNX_PATH)
             from kokoro_onnx import Kokoro
-            self._kokoro = Kokoro(KOKORO_ONNX_PATH, KOKORO_VOICES_PATH)
+
+            # Try CUDA first, fall back to CPU if not available
+            _cuda_loaded = False
+            try:
+                import onnxruntime as _ort
+                _available = _ort.get_available_providers()
+                if "CUDAExecutionProvider" in _available:
+                    self._kokoro = Kokoro(
+                        KOKORO_ONNX_PATH, KOKORO_VOICES_PATH,
+                        execution_providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+                    )
+                    _cuda_loaded = True
+                    logger.info("Kokoro loaded with CUDAExecutionProvider.")
+            except Exception as _e:
+                logger.warning("Kokoro CUDA load failed (%s), falling back to CPU.", _e)
+
+            if not _cuda_loaded:
+                self._kokoro = Kokoro(KOKORO_ONNX_PATH, KOKORO_VOICES_PATH)
+                logger.info("Kokoro loaded on CPU.")
+
             self.is_loaded = True
-            logger.info("Kokoro loaded. Available voices: %s", len(self._kokoro.get_voices()))
+            logger.info("Kokoro ready. Available voices: %s", len(self._kokoro.get_voices()))
 
     def load_model(
         self,

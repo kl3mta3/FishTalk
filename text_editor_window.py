@@ -106,6 +106,11 @@ class TextEditorWindow(ctk.CTkToplevel):
         )
         self._char_label.pack(side="left", padx=6)
 
+        # ── Bottom action bar (pack BEFORE expanding content so it always
+        #    gets its space — tkinter pack gives 0 height to anything packed
+        #    after a fill="both" expand=True widget) ───────────────────────
+        self._build_bottom_bar()
+
         # ── Main content: editor + tag panel ─────────────────────────
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=10, pady=(8, 4))
@@ -159,19 +164,22 @@ class TextEditorWindow(ctk.CTkToplevel):
         tabs.add("🌐 Translate")
         self._build_translate_tab(tabs.tab("🌐 Translate"))
 
-        # ── Bottom action bar ─────────────────────────────────────────
-        self._build_bottom_bar()
-
     def _build_fish_tag_panel(self, parent):
+        # Wrap everything in a scrollable frame so 16 buttons don't overflow
+        scroll = ctk.CTkScrollableFrame(
+            parent, fg_color="transparent", corner_radius=0,
+        )
+        scroll.pack(fill="both", expand=True)
+
         ctk.CTkLabel(
-            parent,
+            scroll,
             text="🏷  Tags",
             font=(FONT_FAMILY, 13, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 6))
 
         ctk.CTkLabel(
-            parent,
+            scroll,
             text="Click to insert at cursor",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_muted"],
@@ -179,14 +187,14 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         for category, tags in FISH_TAGS.items():
             ctk.CTkLabel(
-                parent,
+                scroll,
                 text=category,
                 font=(FONT_FAMILY, 11, "bold"),
                 text_color=COLORS["accent_light"],
             ).pack(anchor="w", padx=10, pady=(6, 2))
 
             for tag, tooltip in tags:
-                row = ctk.CTkFrame(parent, fg_color="transparent")
+                row = ctk.CTkFrame(scroll, fg_color="transparent")
                 row.pack(fill="x", padx=8, pady=1)
 
                 ctk.CTkButton(
@@ -203,7 +211,7 @@ class TextEditorWindow(ctk.CTkToplevel):
                 ).pack(side="left", fill="x", expand=True)
 
         # Download AI tagger button (shown when model missing)
-        self._ai_download_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._ai_download_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         self._ai_download_frame.pack(fill="x", padx=8, pady=(16, 4))
         self._refresh_ai_status_panel()
 
@@ -401,26 +409,39 @@ class TextEditorWindow(ctk.CTkToplevel):
             self._set_status("Nothing to translate.", COLORS["warning"])
             return
 
+        from tag_suggester import is_llm_available, is_qwen_model_ready
+        if not is_llm_available():
+            self._set_status("llama-cpp-python not installed — cannot translate. Install it in Settings.", COLORS["danger"])
+            return
+        if not is_qwen_model_ready():
+            self._set_status("Qwen model not downloaded — go to Settings → Download Model.", COLORS["danger"])
+            return
+
         target_lang = self._translate_lang_var.get()
         target_tone = getattr(self, "_translate_tone_var", None)
         target_tone = target_tone.get() if target_tone else "Natural"
         self._translate_btn.configure(state="disabled", text="Translating…")
         self._set_status(f"Translating → {target_lang}…", COLORS["warning"])
 
-        def _progress(msg, _frac=None):
-            self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
-
         def _run():
+            _err = None
             try:
                 result = translate_for_voice(text, target_lang, tone=target_tone)
             except Exception as exc:
-                logger.warning("Editor translate failed: %s", exc)
+                logger.warning("Editor translate failed: %s", exc, exc_info=True)
                 result = None
+                _err = str(exc)
 
             def _show():
                 self._translate_btn.configure(state="normal", text="🌐 Translate")
+                if _err:
+                    self._set_status(f"LLM error: {_err}", COLORS["danger"])
+                    return
                 if not result or not result.strip():
-                    self._set_status("Translation returned empty — try again.", COLORS["danger"])
+                    self._set_status("Translation returned empty — check Qwen model is working.", COLORS["danger"])
+                    return
+                if result.strip() == text.strip():
+                    self._set_status("Translation returned unchanged text — model may not be loaded correctly.", COLORS["warning"])
                     return
                 self._set_status("")
                 self._show_diff_dialog(text, result, source=f"🌐 Translate → {target_lang}")

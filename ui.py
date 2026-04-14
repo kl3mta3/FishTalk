@@ -10,10 +10,14 @@ CustomTkinter dark-mode GUI with 4 tabs:
 
 import logging
 import os
+import subprocess
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Optional
+
+# Suppress console windows on Windows for all subprocess calls
+_NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
 import customtkinter as ctk
 import numpy as np
@@ -182,6 +186,10 @@ class FishTalkUI:
         self._listen_preview_paused: bool = False
         self._listen_preview_stream = None
         self._listen_preview_audio = None
+        self._listen_vol_var = tk.IntVar(value=100)
+        self._listen_drag_source: int = -1
+        self._listen_drag_target: int = -1
+        self._listen_drag_rows:   list = []
         self._listen_preview_pos: int = 0
         self._listen_preview_sr = None
 
@@ -1103,29 +1111,50 @@ class FishTalkUI:
                 return
 
             _aud_status.configure(text="Converting…", text_color=COLORS["warning"])
+            _aud_progress.set(0)
+            _aud_progress.pack(anchor="w", fill="x", padx=14, pady=(0, 2))
             _aud_btn.configure(state="disabled")
+
+            _aud_cancel = threading.Event()
+
+            def _tick(start, _id=[None]):
+                if _aud_cancel.is_set():
+                    return
+                elapsed = time.time() - start
+                _aud_status.configure(
+                    text=f"Converting…  {int(elapsed // 60)}:{int(elapsed % 60):02d} elapsed",
+                    text_color=COLORS["warning"],
+                )
+                _aud_progress.set(min(elapsed / 60, 0.95))  # crawls toward 95% (no true duration)
+                _id[0] = self.root.after(500, lambda: _tick(start, _id))
 
             def _run():
                 import subprocess
+                start = time.time()
+                self.root.after(0, lambda: _tick(start))
                 try:
                     cmd = ["ffmpeg", "-y", "-i", src, "-c:a", acodec]
                     if bitrate:
                         cmd += ["-b:a", bitrate]
-                    # Preserve chapter metadata wherever the format supports it
                     if to_fmt in ("M4B", "MP4"):
                         cmd += ["-map_metadata", "0", "-movflags", "+faststart"]
                     elif to_fmt == "MP3":
-                        # Embed ID3v2 chapter tags so data survives a later re-encode
                         cmd += ["-map_metadata", "0", "-id3v2_version", "3"]
                     cmd.append(out)
-                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_NO_WIN)
+                    elapsed = time.time() - start
                     size_mb = os.path.getsize(out) / (1024 * 1024)
+                    _aud_cancel.set()
+                    self.root.after(0, lambda: _aud_progress.set(1.0))
                     self.root.after(0, lambda: _aud_status.configure(
-                        text=f"✅ Saved {to_fmt}: {os.path.basename(out)} ({size_mb:.1f} MB)",
+                        text=f"✅ {os.path.basename(out)} ({size_mb:.1f} MB) — {elapsed:.0f}s",
                         text_color=COLORS["success"],
                     ))
+                    self.root.after(1500, lambda: _aud_progress.pack_forget())
                 except Exception as exc:
+                    _aud_cancel.set()
                     logger.error("Audio convert failed: %s", exc)
+                    self.root.after(0, lambda: _aud_progress.pack_forget())
                     self.root.after(0, lambda e=str(exc): _aud_status.configure(
                         text=f"⚠ {e}", text_color=COLORS["danger"],
                     ))
@@ -1194,6 +1223,13 @@ class FishTalkUI:
         )
         _aud_note_lbl.pack(anchor="w", padx=14, pady=(0, 4))
 
+        _aud_progress = ctk.CTkProgressBar(
+            aud_card, progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_input"], height=8, corner_radius=4,
+        )
+        _aud_progress.set(0)
+        # Not packed yet — shown dynamically during conversion
+
         _aud_status = ctk.CTkLabel(
             aud_card, text="",
             font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
@@ -1219,6 +1255,13 @@ class FishTalkUI:
             corner_radius=6, height=160,
         )
         _list_frame.pack(fill="x", padx=14, pady=(0, 6))
+
+        _comb_progress = ctk.CTkProgressBar(
+            comb_card, progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_input"], height=8, corner_radius=4,
+        )
+        _comb_progress.set(0)
+        # Not packed yet — shown during combine
 
         _comb_status = ctk.CTkLabel(
             comb_card, text="No files added yet.",
@@ -1356,26 +1399,55 @@ class FishTalkUI:
             if not out:
                 return
             _comb_status.configure(text="Combining…", text_color=COLORS["warning"])
+            _comb_progress.set(0)
+            _comb_progress.pack(anchor="w", fill="x", padx=14, pady=(0, 2))
+
+            _n_files = len(_comb_files)
+            _comb_cancel = threading.Event()
+
+            def _comb_tick(start, _id=[None]):
+                if _comb_cancel.is_set():
+                    return
+                elapsed = time.time() - start
+                _id[0] = self.root.after(500, lambda: _comb_tick(start, _id))
 
             def _run():
                 import subprocess, tempfile
+                start = time.time()
+                self.root.after(0, lambda: _comb_tick(start))
                 tmp = tempfile.mkdtemp(prefix="fishtalk_comb_")
                 try:
                     wav_files, durations_ms = [], []
                     for fi, f in enumerate(_comb_files):
                         norm = os.path.join(tmp, f"t{fi:04d}.wav")
+                        frac = fi / max(_n_files, 1) * 0.7
+                        elapsed = time.time() - start
+                        self.root.after(0, lambda fr=frac, fi2=fi, el=elapsed: (
+                            _comb_progress.set(fr),
+                            _comb_status.configure(
+                                text=f"Normalising {fi2+1}/{_n_files}…  {el:.0f}s elapsed",
+                                text_color=COLORS["warning"],
+                            ),
+                        ))
                         subprocess.run(
                             ["ffmpeg", "-y", "-i", f["path"], "-ar", "44100", "-ac", "2", norm],
                             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=_NO_WIN,
                         )
                         probe = subprocess.run(
                             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                              "-of", "default=noprint_wrappers=1:nokey=1", norm],
-                            capture_output=True, text=True,
+                            capture_output=True, text=True, creationflags=_NO_WIN,
                         )
                         dur_s = float(probe.stdout.strip() or "0")
                         durations_ms.append(int(dur_s * 1000))
                         wav_files.append(norm)
+                    elapsed_now = time.time() - start
+                    self.root.after(0, lambda el=elapsed_now: (
+                        _comb_progress.set(0.75),
+                        _comb_status.configure(text=f"Building chapters…  {el:.0f}s elapsed",
+                                               text_color=COLORS["warning"]),
+                    ))
 
                     concat_txt = os.path.join(tmp, "concat.txt")
                     with open(concat_txt, "w", encoding="utf-8") as fh:
@@ -1400,18 +1472,28 @@ class FishTalkUI:
                     else:
                         cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-i", meta_txt,
                                "-map_metadata", "1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out]
-                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self.root.after(0, lambda: (
+                        _comb_progress.set(0.9),
+                        _comb_status.configure(text="Encoding final file…", text_color=COLORS["warning"]),
+                    ))
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_NO_WIN)
 
-                    total_s = sum(durations_ms) / 1000
+                    total_s   = sum(durations_ms) / 1000
+                    elapsed   = time.time() - start
                     m, s = divmod(int(total_s), 60)
                     h, m = divmod(m, 60)
                     dur_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
-                    self.root.after(0, lambda: _comb_status.configure(
-                        text=f"✅ Saved — {len(_comb_files)} chapters, {dur_str}",
+                    _comb_cancel.set()
+                    self.root.after(0, lambda: _comb_progress.set(1.0))
+                    self.root.after(0, lambda ds=dur_str, el=elapsed: _comb_status.configure(
+                        text=f"✅ Saved — {len(_comb_files)} chapters, {ds}  ({el:.0f}s total)",
                         text_color=COLORS["success"],
                     ))
+                    self.root.after(1500, lambda: _comb_progress.pack_forget())
                 except Exception as exc:
+                    _comb_cancel.set()
                     logger.error("Combine export failed: %s", exc)
+                    self.root.after(0, lambda: _comb_progress.pack_forget())
                     self.root.after(0, lambda e=str(exc): _comb_status.configure(
                         text=f"⚠ {e}", text_color=COLORS["danger"],
                     ))
@@ -1573,7 +1655,28 @@ class FishTalkUI:
         self._listen_status = ctk.CTkLabel(bot, text="",
                                            font=(FONT_FAMILY, 11),
                                            text_color=COLORS["text_secondary"])
-        self._listen_status.pack(side="right", padx=12)
+        self._listen_status.pack(side="right", padx=(0, 12))
+
+        # Volume control
+        _vol_frame = ctk.CTkFrame(bot, fg_color="transparent")
+        _vol_frame.pack(side="right", padx=(0, 8))
+        ctk.CTkLabel(_vol_frame, text="Vol",
+                     font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
+                     width=24).pack(side="left")
+        self._listen_vol_label = ctk.CTkLabel(_vol_frame, text="100%",
+                     font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+                     width=34)
+        self._listen_vol_label.pack(side="right")
+        ctk.CTkSlider(
+            _vol_frame,
+            from_=0, to=100,
+            variable=self._listen_vol_var,
+            width=110, height=16,
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent_light"],
+            button_hover_color=COLORS["accent"],
+            command=lambda v: self._listen_vol_label.configure(text=f"{int(v)}%"),
+        ).pack(side="left", padx=4)
 
         # ── Drag-and-drop ────────────────────────────────────────────────────
         try:
@@ -1585,6 +1688,53 @@ class FishTalkUI:
         except Exception:
             pass
 
+        self._rebuild_listen_ui()
+
+    # ------------------------------------------------------------------
+    # Listen Lab — drag-to-reorder
+    # ------------------------------------------------------------------
+
+    def _listen_drag_start(self, idx: int):
+        self._listen_drag_source = idx
+        self._listen_drag_target = idx
+
+    def _listen_drag_motion(self, event):
+        if self._listen_drag_source < 0:
+            return
+        y_root = event.y_root
+        new_tgt = self._listen_drag_source
+        for i, r in enumerate(self._listen_drag_rows):
+            try:
+                ry = r.winfo_rooty()
+                rh = r.winfo_height()
+                if ry <= y_root < ry + rh:
+                    new_tgt = i
+                    break
+            except Exception:
+                pass
+        if new_tgt == self._listen_drag_target:
+            return
+        self._listen_drag_target = new_tgt
+        # Update row colours without a full rebuild
+        for i, r in enumerate(self._listen_drag_rows):
+            if i == new_tgt:
+                r.configure(fg_color=COLORS["accent"])
+            elif i == self._listen_drag_source:
+                r.configure(fg_color=COLORS["bg_card_hover"])
+            else:
+                sel = self._listen_items[i]["selected"]
+                r.configure(fg_color=COLORS["bg_input"] if sel else COLORS["bg_card"])
+
+    def _listen_drag_end(self, event):
+        if self._listen_drag_source < 0:
+            return
+        src = self._listen_drag_source
+        dst = self._listen_drag_target
+        self._listen_drag_source = -1
+        self._listen_drag_target = -1
+        if src != dst:
+            item = self._listen_items.pop(src)
+            self._listen_items.insert(dst, item)
         self._rebuild_listen_ui()
 
     def _listen_translate_toggled(self):
@@ -1608,6 +1758,7 @@ class FishTalkUI:
     def _rebuild_listen_ui(self):
         for w in self._listen_scroll.winfo_children():
             w.destroy()
+        self._listen_drag_rows = []
 
         if not self._listen_items:
             ctk.CTkLabel(self._listen_scroll,
@@ -1617,64 +1768,172 @@ class FishTalkUI:
             return
 
         _ib = {"width": 32, "height": 32, "corner_radius": 5, "font": (FONT_FAMILY, 14)}
+        translate_on = getattr(self, "_listen_translate_var", None) and self._listen_translate_var.get()
 
         for idx, item in enumerate(self._listen_items):
+            tl_status  = item.get("tl_status")   # None|transcribing|translating|converting|done|error
+            tl_progress = item.get("tl_progress", 0.0)
+            tl_path    = item.get("tl_path")
+            is_active  = tl_status in ("transcribing", "translating", "converting")
+            is_done    = tl_status == "done"
+            is_error   = tl_status == "error"
             is_playing = (idx == self._listen_preview_idx and not self._listen_preview_paused)
+            is_paused_play = (idx == self._listen_preview_idx and self._listen_preview_paused)
 
-            row = ctk.CTkFrame(self._listen_scroll,
-                               fg_color=COLORS["bg_input"] if item["selected"] else COLORS["bg_card"],
-                               corner_radius=7, height=42)
+            row_color = COLORS["bg_input"] if item["selected"] else COLORS["bg_card"]
+            row = ctk.CTkFrame(self._listen_scroll, fg_color=row_color, corner_radius=7)
             row.pack(fill="x", padx=4, pady=2)
-            row.pack_propagate(False)
+            self._listen_drag_rows.append(row)
+
+            # ── Top line ─────────────────────────────────────────────────
+            top = ctk.CTkFrame(row, fg_color="transparent", height=40)
+            top.pack(fill="x")
+            top.pack_propagate(False)
+
+            # Drag handle
+            _handle = ctk.CTkLabel(
+                top, text="⠿", width=18,
+                font=(FONT_FAMILY, 16), text_color=COLORS["text_muted"],
+                cursor="hand2",
+            )
+            _handle.pack(side="left", padx=(6, 0))
+            _handle.bind("<ButtonPress-1>",   lambda e, i=idx: self._listen_drag_start(i))
+            _handle.bind("<B1-Motion>",        self._listen_drag_motion)
+            _handle.bind("<ButtonRelease-1>",  self._listen_drag_end)
 
             # Checkbox
             var = tk.BooleanVar(value=item["selected"])
-
             def _on_check(v=var, i=idx):
                 self._listen_items[i]["selected"] = v.get()
                 self._rebuild_listen_ui()
-
-            cb = ctk.CTkCheckBox(row, text="", variable=var, width=24,
-                                 command=_on_check,
-                                 fg_color=COLORS["accent"],
+            cb = ctk.CTkCheckBox(top, text="", variable=var, width=24,
+                                 command=_on_check, fg_color=COLORS["accent"],
                                  hover_color=COLORS["accent_hover"])
-            cb.pack(side="left", padx=(8, 4))
+            cb.pack(side="left", padx=(4, 4))
 
-            # Name label
-            ctk.CTkLabel(row, text=item["name"],
-                         font=(FONT_FAMILY, 12),
-                         text_color=COLORS["text_primary"],
-                         anchor="w").pack(side="left", fill="x", expand=True, padx=4)
-
+            # ── Right buttons (packed right before name label) ─────────────
             # Remove ✕
-            _rb = ctk.CTkButton(row, text="✕",
+            _rb = ctk.CTkButton(top, text="✕",
                                 fg_color=COLORS["danger"], hover_color="#d43d62",
                                 command=lambda i=idx: self._listen_remove(i), **_ib)
             _rb.pack(side="right", padx=(0, 6))
+            self._make_tooltip(_rb, "Remove from list")
 
-            # Metadata ⓘ
-            _mb = ctk.CTkButton(row, text="ⓘ",
-                                fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-                                border_color=COLORS["border"], border_width=1,
-                                command=lambda p=item["path"]: self._open_audio_meta_editor(p),
-                                **_ib)
-            _mb.pack(side="right", padx=(0, 2))
-            self._make_tooltip(_mb, "Edit audio metadata")
+            if is_active:
+                # Cancel ⊘
+                _cb = ctk.CTkButton(top, text="⊘",
+                                    fg_color=COLORS["warning"], hover_color="#e6bc5c",
+                                    text_color="#1a1a2e",
+                                    command=lambda i=idx: self._listen_cancel_pipeline(i), **_ib)
+                _cb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_cb, "Cancel conversion")
 
-            # Play ▶ / ⏸
-            _pp = ctk.CTkButton(
-                row,
-                text="⏸" if is_playing else "▶",
-                fg_color=COLORS["success"] if is_playing else COLORS["bg_input"],
-                hover_color="#05b890" if is_playing else COLORS["bg_card_hover"],
-                border_color=COLORS["success"], border_width=1,
-                command=lambda i=idx: self._listen_toggle_play(i),
-                **_ib,
-            )
-            _pp.pack(side="right", padx=(0, 2))
-            self._make_tooltip(_pp, "Pause" if is_playing else "Play")
+                # Pause ⏸ (only during TTS conversion — earlier stages can't pause)
+                if tl_status == "converting":
+                    _tl_paused = item.get("tl_paused", False)
+                    _pause_btn = ctk.CTkButton(
+                        top,
+                        text="▶" if _tl_paused else "⏸",
+                        fg_color=COLORS["warning"] if _tl_paused else COLORS["bg_input"],
+                        hover_color="#e6bc5c" if _tl_paused else COLORS["bg_card_hover"],
+                        border_color=COLORS["warning"], border_width=1,
+                        command=lambda i=idx: self._listen_pause_pipeline(i), **_ib)
+                    _pause_btn.pack(side="right", padx=(0, 2))
+                    self._make_tooltip(_pause_btn, "Resume" if _tl_paused else "Pause conversion")
 
-    # ── Listen Lab playback ────────────────────────────────────────────
+            elif is_done and tl_path and os.path.isfile(tl_path):
+                # Metadata ⓘ (of translated audio)
+                _mb = ctk.CTkButton(top, text="ⓘ",
+                                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                    border_color=COLORS["border"], border_width=1,
+                                    command=lambda p=tl_path: self._open_audio_meta_editor(p),
+                                    **_ib)
+                _mb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_mb, "Edit translated audio metadata")
+
+                # Save 💾
+                _sb = ctk.CTkButton(top, text="💾",
+                                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                    border_color=COLORS["border"], border_width=1,
+                                    command=lambda p=tl_path, n=item["name"]: self._listen_save_translated(p, n),
+                                    **_ib)
+                _sb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_sb, "Save translated audio")
+
+                # Play/Pause ▶/⏸
+                _pp = ctk.CTkButton(
+                    top,
+                    text="⏸" if is_playing else "▶",
+                    fg_color=COLORS["success"] if is_playing else COLORS["bg_input"],
+                    hover_color="#05b890" if is_playing else COLORS["bg_card_hover"],
+                    border_color=COLORS["success"], border_width=1,
+                    command=lambda i=idx: self._listen_toggle_play(i), **_ib)
+                _pp.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_pp, "Pause" if is_playing else "Play translated audio")
+
+            else:
+                # Normal: metadata ⓘ on original file
+                _mb = ctk.CTkButton(top, text="ⓘ",
+                                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                    border_color=COLORS["border"], border_width=1,
+                                    command=lambda p=item["path"]: self._open_audio_meta_editor(p),
+                                    **_ib)
+                _mb.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_mb, "Edit audio metadata")
+
+                # Play ▶/⏸
+                _pp = ctk.CTkButton(
+                    top,
+                    text="⏸" if is_playing else "▶",
+                    fg_color=COLORS["success"] if is_playing else COLORS["bg_input"],
+                    hover_color="#05b890" if is_playing else COLORS["bg_card_hover"],
+                    border_color=COLORS["success"], border_width=1,
+                    command=lambda i=idx: self._listen_toggle_play(i), **_ib)
+                _pp.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_pp, "Pause" if is_playing else "Play audio")
+
+            # Name / status label
+            if is_active:
+                _status_map = {
+                    "transcribing": "🎙  Transcribing…",
+                    "translating":  "🌐  Translating…",
+                    "converting":   "🔊  Converting…",
+                }
+                ctk.CTkLabel(top, text=_status_map.get(tl_status, tl_status),
+                             font=(FONT_FAMILY, 11, "italic"),
+                             text_color=COLORS["warning"], anchor="w").pack(
+                                 side="left", fill="x", expand=True, padx=4)
+            elif is_error:
+                err_short = str(item.get("tl_error", "Error"))[:60]
+                ctk.CTkLabel(top, text=f"⚠  {err_short}",
+                             font=(FONT_FAMILY, 11), text_color=COLORS["danger"],
+                             anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+            else:
+                suffix = "  ✓ translated" if is_done else ""
+                ctk.CTkLabel(top, text=item["name"] + suffix,
+                             font=(FONT_FAMILY, 12),
+                             text_color=COLORS["success"] if is_done else COLORS["text_primary"],
+                             anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+
+            # ── Progress bar (only during TTS conversion) ─────────────────
+            if tl_status == "converting":
+                pb_frame = ctk.CTkFrame(row, fg_color="transparent", height=18)
+                pb_frame.pack(fill="x", padx=12, pady=(0, 4))
+                pb_frame.pack_propagate(False)
+                pb = ctk.CTkProgressBar(pb_frame, progress_color=COLORS["accent"],
+                                        fg_color=COLORS["bg_input"], height=10,
+                                        corner_radius=5)
+                pb.set(tl_progress)
+                pb.pack(side="left", fill="x", expand=True, pady=4)
+                pct_lbl = ctk.CTkLabel(pb_frame, text=f"{int(tl_progress*100)}%",
+                                       font=(FONT_FAMILY, 9),
+                                       text_color=COLORS["text_muted"], width=32)
+                pct_lbl.pack(side="left", padx=(4, 0))
+                # Store for in-place updates (avoids full rebuild on every tick)
+                item["_tl_pb"] = pb
+                item["_tl_pct"] = pct_lbl
+
+    # ── Listen Lab playback / pipeline ────────────────────────────────
 
     def _listen_toggle_play(self, idx: int):
         import sounddevice as _sd
@@ -1682,9 +1941,28 @@ class FishTalkUI:
 
         if idx < 0 or idx >= len(self._listen_items):
             return
-        path = self._listen_items[idx]["path"]
-        if not os.path.isfile(path):
-            messagebox.showwarning("Listen Lab", f"File not found:\n{path}", parent=self.root)
+        item = self._listen_items[idx]
+        translate_on = getattr(self, "_listen_translate_var", None) and self._listen_translate_var.get()
+
+        # Translate mode: route through pipeline
+        if translate_on:
+            tl_status = item.get("tl_status")
+            if tl_status == "done" and item.get("tl_path") and os.path.isfile(item["tl_path"]):
+                # Already translated — play/pause the translated audio
+                pass  # fall through to normal play with tl_path
+            elif tl_status in ("transcribing", "translating", "converting"):
+                # Toggle pause (only meaningful in converting state)
+                self._listen_pause_pipeline(idx)
+                return
+            else:
+                # Not started / error → start pipeline
+                self._listen_run_pipeline(idx)
+                return
+
+        # Normal play (or translated-done playback)
+        play_path = item.get("tl_path") if (translate_on and item.get("tl_status") == "done") else item["path"]
+        if not play_path or not os.path.isfile(play_path):
+            messagebox.showwarning("Listen Lab", f"File not found:\n{play_path}", parent=self.root)
             return
 
         # Toggle pause if same item
@@ -1697,7 +1975,7 @@ class FishTalkUI:
         self._listen_stop_preview()
 
         try:
-            data, sr = _sf.read(path, dtype="float32")
+            data, sr = _sf.read(play_path, dtype="float32")
         except Exception as exc:
             messagebox.showerror("Listen Lab", f"Cannot read audio:\n{exc}", parent=self.root)
             return
@@ -1716,8 +1994,7 @@ class FishTalkUI:
             if self._listen_preview_paused:
                 outdata[:] = 0
                 return
-            vol = getattr(self, "vol_slider", None)
-            vol = (vol.get() / 100.0) if vol else 1.0
+            vol = self._listen_vol_var.get() / 100.0
             remaining = len(self._listen_preview_audio) - self._listen_preview_pos
             if remaining <= 0:
                 outdata[:] = 0
@@ -1736,6 +2013,9 @@ class FishTalkUI:
             self._listen_preview_paused = False
             self._listen_preview_stream = None
             self.root.after(0, self._rebuild_listen_ui)
+            # Auto-advance queue if one is running
+            if getattr(self, "_listen_queue", []):
+                self.root.after(50, self._listen_play_next)
 
         stream = _sd.OutputStream(
             samplerate=sr, channels=1,
@@ -1757,65 +2037,97 @@ class FishTalkUI:
         self._listen_preview_paused = False
 
     def _listen_play_selected(self):
-        """Play all selected items in sequence."""
+        """Play/pipeline all selected items in sequence."""
         selected = [i for i, it in enumerate(self._listen_items) if it["selected"]]
         if not selected:
             self._listen_status.configure(text="No items selected")
             return
-        self._listen_queue = list(selected)
-        self._listen_play_next()
+        translate_on = getattr(self, "_listen_translate_var", None) and self._listen_translate_var.get()
+        if translate_on:
+            # Run pipeline queue: start first, chain via on_done callback
+            self._listen_queue = list(selected)
+            self._listen_pipeline_next()
+        else:
+            self._listen_queue = list(selected)
+            self._listen_play_next()
 
     def _listen_play_next(self):
+        """Advance normal (no-translate) playback queue."""
         if not getattr(self, "_listen_queue", []):
             return
         nxt = self._listen_queue.pop(0)
-        # chain: after this one finishes → play next
-        _orig_idx = self._listen_preview_idx
+        self._listen_toggle_play(nxt)
 
+    def _listen_pipeline_next(self):
+        """Advance translate pipeline queue."""
+        if not getattr(self, "_listen_queue", []):
+            return
+        nxt = self._listen_queue[0]  # don't pop yet — pipeline callback will pop
+        if nxt < 0 or nxt >= len(self._listen_items):
+            self._listen_queue.pop(0)
+            self._listen_pipeline_next()
+            return
+        item = self._listen_items[nxt]
+        # If already done, just play it and chain
+        if item.get("tl_status") == "done" and item.get("tl_path"):
+            self._listen_queue.pop(0)
+            def _chain():
+                if getattr(self, "_listen_queue", []):
+                    self.root.after(300, self._listen_pipeline_next)
+            self._listen_run_plain(nxt, on_done=_chain)
+        else:
+            self._listen_run_pipeline(nxt, on_done=lambda: (
+                self._listen_queue.pop(0) if self._listen_queue and self._listen_queue[0] == nxt else None,
+                self.root.after(300, self._listen_pipeline_next),
+            ))
+
+    # ── Listen Lab plain playback helper ──────────────────────────────
+
+    def _listen_run_plain(self, idx: int, on_done=None):
+        """Play a single item (original or translated) without pipeline."""
         import sounddevice as _sd
         import soundfile as _sf
 
-        if nxt < 0 or nxt >= len(self._listen_items):
-            self._listen_play_next()
+        if idx < 0 or idx >= len(self._listen_items):
             return
-        path = self._listen_items[nxt]["path"]
-        if not os.path.isfile(path):
-            self._listen_play_next()
+        item = self._listen_items[idx]
+        play_path = item.get("tl_path") if item.get("tl_status") == "done" else item["path"]
+        if not play_path or not os.path.isfile(play_path):
+            if on_done:
+                on_done()
             return
 
         self._listen_stop_preview()
-
         try:
-            data, sr = _sf.read(path, dtype="float32")
+            data, sr = _sf.read(play_path, dtype="float32")
         except Exception:
-            self._listen_play_next()
+            if on_done:
+                on_done()
             return
-
         if data.ndim > 1:
             data = data[:, 0]
 
         self._listen_preview_audio = data
         self._listen_preview_sr = sr
         self._listen_preview_pos = 0
-        self._listen_preview_idx = nxt
+        self._listen_preview_idx = idx
         self._listen_preview_paused = False
         self._rebuild_listen_ui()
 
-        def _cb(outdata, frames, time_info, status):
+        def _cb(outdata, frames, _t, _st):
             if self._listen_preview_paused:
                 outdata[:] = 0
                 return
-            vol = getattr(self, "vol_slider", None)
-            vol = (vol.get() / 100.0) if vol else 1.0
+            vol = (self.vol_slider.get() / 100.0) if hasattr(self, "vol_slider") else 1.0
             remaining = len(self._listen_preview_audio) - self._listen_preview_pos
             if remaining <= 0:
                 outdata[:] = 0
                 raise _sd.CallbackStop()
             take = min(frames, remaining)
-            chunk = (self._listen_preview_audio[
+            out = (self._listen_preview_audio[
                 self._listen_preview_pos:self._listen_preview_pos + take
             ] * vol).astype(np.float32)
-            outdata[:take, 0] = chunk
+            outdata[:take, 0] = out
             if take < frames:
                 outdata[take:] = 0
             self._listen_preview_pos += take
@@ -1825,25 +2137,287 @@ class FishTalkUI:
             self._listen_preview_idx = -1
             self._listen_preview_paused = False
             self.root.after(0, self._rebuild_listen_ui)
-            self.root.after(50, self._listen_play_next)
+            if on_done:
+                self.root.after(50, on_done)
 
-        stream = _sd.OutputStream(
-            samplerate=sr, channels=1,
-            dtype="float32", callback=_cb,
-            finished_callback=_finished,
-        )
+        stream = _sd.OutputStream(samplerate=sr, channels=1, dtype="float32",
+                                  callback=_cb, finished_callback=_finished)
         self._listen_preview_stream = stream
         stream.start()
+
+    # ── Listen Lab translate pipeline ─────────────────────────────────
+
+    def _listen_run_pipeline(self, idx: int, on_done=None):
+        """STT → Qwen translate → TTS, streaming playback of TTS chunks."""
+        if idx < 0 or idx >= len(self._listen_items):
+            return
+        item = self._listen_items[idx]
+
+        # Check LLM availability up-front
+        from tag_suggester import is_llm_available, is_qwen_model_ready
+        if not is_llm_available() or not is_qwen_model_ready():
+            messagebox.showwarning(
+                "Listen Lab — Translation",
+                "Qwen model not ready.\n\n"
+                "Go to Settings → download the Qwen model, then try again.",
+                parent=self.root,
+            )
+            return
+
+        self._listen_stop_preview()
+        item["tl_status"]   = "transcribing"
+        item["tl_progress"] = 0.0
+        item["tl_path"]     = None
+        item["tl_cancel"]   = False
+        item["tl_paused"]   = False
+        self._rebuild_listen_ui()
+        self._listen_status.configure(text=f"Transcribing: {item['name']}")
+
+        src_path = item["path"]
+        lang     = self._listen_translate_lang_var.get()
+        voice_name = self._listen_translate_voice_var.get()
+        engine   = getattr(self.settings, "engine", "fish14")
+
+        def _cancelled():
+            return item.get("tl_cancel", False)
+
+        # ── Step 2+3: translate then TTS (runs in thread) ─────────────
+        def _translate_and_tts(transcript: str):
+            if _cancelled():
+                return
+            # Translate
+            item["tl_status"] = "translating"
+            self.root.after(0, lambda: (
+                self._rebuild_listen_ui(),
+                self._listen_status.configure(text=f"Translating → {lang}…"),
+            ))
+            try:
+                from tag_suggester import translate_for_voice
+                translated = translate_for_voice(transcript, lang)
+                if not translated or not translated.strip():
+                    translated = transcript
+            except Exception as exc:
+                logger.warning("Listen pipeline translate failed: %s", exc)
+                translated = transcript
+
+            if _cancelled():
+                return
+
+            # TTS
+            item["tl_status"]   = "converting"
+            item["tl_progress"] = 0.0
+            self.root.after(0, lambda: (
+                self._rebuild_listen_ui(),
+                self._listen_status.configure(text=f"Converting: {item['name']}…"),
+            ))
+
+            os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
+            safe = re.sub(r"[^\w\-]", "_", os.path.splitext(item["name"])[0])
+            out_path = os.path.join(AUDIO_TEMP_DIR, f"listen_tl_{safe}_{int(time.time())}.wav")
+
+            import queue as _q
+            import sounddevice as _sd2
+            _sq = _q.Queue()
+            _SENT = object()
+            _stream = [None]
+
+            def _stream_cb(outdata, frames, _t, _st):
+                if item.get("tl_paused", False):
+                    outdata[:] = 0
+                    return
+                vol = (self.vol_slider.get() / 100.0) if hasattr(self, "vol_slider") else 1.0
+                remaining = frames
+                offset = 0
+                outdata[:] = 0
+                while remaining > 0:
+                    if _stream_cb._buf is None or len(_stream_cb._buf) == 0:
+                        try:
+                            chunk = _sq.get_nowait()
+                            if chunk is _SENT:
+                                return
+                            _stream_cb._buf = chunk
+                        except _q.Empty:
+                            return
+                    take = min(remaining, len(_stream_cb._buf))
+                    out = (_stream_cb._buf[:take] * vol).astype(np.float32)
+                    outdata[offset:offset+take, 0] = out
+                    _stream_cb._buf = _stream_cb._buf[take:]
+                    offset += take
+                    remaining -= take
+            _stream_cb._buf = None
+
+            def _on_chunk(chunk_np, sr):
+                if _cancelled():
+                    return
+                if _stream[0] is None:
+                    s = _sd2.OutputStream(samplerate=sr, channels=1, dtype="float32",
+                                          blocksize=2048, callback=_stream_cb)
+                    s.start()
+                    _stream[0] = s
+                    self._listen_preview_stream = s
+                    self._listen_preview_idx  = idx
+                    self._listen_preview_paused = False
+                    self.root.after(0, self._rebuild_listen_ui)
+                _sq.put(chunk_np.astype(np.float32))
+
+            def _on_progress(status_txt, frac):
+                item["tl_progress"] = frac
+                # Update progress bar in-place if widget still alive
+                pb = item.get("_tl_pb")
+                lbl = item.get("_tl_pct")
+                def _upd():
+                    try:
+                        if pb and pb.winfo_exists():
+                            pb.set(frac)
+                        if lbl and lbl.winfo_exists():
+                            lbl.configure(text=f"{int(frac*100)}%")
+                    except Exception:
+                        pass
+                self.root.after(0, _upd)
+
+            def _on_complete(wav_path):
+                item["tl_path"]   = wav_path
+                item["tl_status"] = "done"
+                _sq.put(_SENT)
+
+                def _finish():
+                    import time as _t
+                    while not _sq.empty():
+                        _t.sleep(0.05)
+                    _t.sleep(0.3)
+                    if _stream[0]:
+                        try:
+                            _stream[0].stop()
+                            _stream[0].close()
+                        except Exception:
+                            pass
+                    self._listen_preview_stream = None
+                    self._listen_preview_idx    = -1
+                    self.root.after(0, self._rebuild_listen_ui)
+                    self.root.after(0, lambda: self._listen_status.configure(
+                        text=f"Done: {item['name']}"))
+                    if on_done:
+                        self.root.after(100, on_done)
+
+                threading.Thread(target=_finish, daemon=True, name="ListenFinish").start()
+
+            def _on_error(exc):
+                item["tl_status"] = "error"
+                item["tl_error"]  = str(exc)
+                self.root.after(0, self._rebuild_listen_ui)
+                if on_done:
+                    self.root.after(0, on_done)
+
+            _is_kokoro = (engine == "kokoro")
+            if _is_kokoro:
+                from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE
+                vid = KOKORO_VOICES.get(voice_name, DEFAULT_VOICE)
+                self.tts.generate(
+                    text=translated, voice_id=vid,
+                    speed=self.speed_slider.get(),
+                    output_path=out_path,
+                    on_progress=_on_progress, on_chunk=_on_chunk,
+                    on_complete=_on_complete, on_error=_on_error,
+                )
+            else:
+                profile = self.voices.get_voice(voice_name) if voice_name != "Default (Random)" else None
+                self.tts.generate(
+                    text=translated,
+                    reference_wav=profile["wav_path"]    if profile else None,
+                    reference_tokens=None,
+                    prompt_text=profile["prompt_text"] if profile else None,
+                    speed=self.speed_slider.get(),
+                    cadence=self.cad_slider.get() / 100.0,
+                    output_path=out_path,
+                    on_progress=_on_progress, on_chunk=_on_chunk,
+                    on_complete=_on_complete, on_error=_on_error,
+                )
+
+        # ── Step 1: STT transcribe ────────────────────────────────────
+        def _on_stt_done(text, _info):
+            if _cancelled():
+                return
+            threading.Thread(
+                target=_translate_and_tts,
+                args=(text.strip(),),
+                daemon=True, name="ListenTranslateTTS",
+            ).start()
+
+        def _on_stt_error(exc):
+            logger.warning("Listen pipeline STT failed: %s", exc)
+            # Fall back: translate empty text → TTS the original transcript
+            threading.Thread(
+                target=_translate_and_tts,
+                args=("",),
+                daemon=True, name="ListenTranslateTTS",
+            ).start()
+
+        def _start_stt():
+            self.stt.transcribe(
+                audio_path=src_path,
+                on_complete=_on_stt_done,
+                on_error=_on_stt_error,
+            )
+
+        if self.stt.is_loaded:
+            threading.Thread(target=_start_stt, daemon=True, name="ListenSTT").start()
+        else:
+            self.stt.load_model(
+                on_ready=lambda: threading.Thread(target=_start_stt, daemon=True,
+                                                  name="ListenSTT").start(),
+                on_error=_on_stt_error,
+            )
+
+    def _listen_cancel_pipeline(self, idx: int):
+        if 0 <= idx < len(self._listen_items):
+            self._listen_items[idx]["tl_cancel"] = True
+            self._listen_items[idx]["tl_status"] = None
+            self._listen_stop_preview()
+            self._rebuild_listen_ui()
+
+    def _listen_pause_pipeline(self, idx: int):
+        if 0 <= idx < len(self._listen_items):
+            item = self._listen_items[idx]
+            item["tl_paused"] = not item.get("tl_paused", False)
+            # Also pause/resume the preview stream
+            self._listen_preview_paused = item["tl_paused"]
+            self._rebuild_listen_ui()
+
+    def _listen_save_translated(self, tl_path: str, name: str):
+        if not tl_path or not os.path.isfile(tl_path):
+            return
+        from tkinter.filedialog import asksaveasfilename
+        stem = os.path.splitext(name)[0]
+        dest = asksaveasfilename(
+            parent=self.root,
+            defaultextension=".mp3",
+            filetypes=[("MP3 audio", "*.mp3"), ("WAV audio", "*.wav"), ("All files", "*.*")],
+            initialfile=f"{stem}_translated.mp3",
+            title="Save translated audio as…",
+        )
+        if dest:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_wav(tl_path)
+                fmt = os.path.splitext(dest)[1].lstrip(".").lower() or "mp3"
+                audio.export(dest, format=fmt)
+                self._listen_status.configure(text=f"Saved: {os.path.basename(dest)}")
+            except Exception as exc:
+                messagebox.showerror("Save", f"Export failed:\n{exc}", parent=self.root)
 
     def _listen_remove(self, idx: int):
         if self._listen_preview_idx == idx:
             self._listen_stop_preview()
         if 0 <= idx < len(self._listen_items):
+            self._listen_items[idx]["tl_cancel"] = True
             self._listen_items.pop(idx)
             self._rebuild_listen_ui()
 
     def _listen_remove_selected(self):
         self._listen_stop_preview()
+        for it in self._listen_items:
+            if it.get("selected"):
+                it["tl_cancel"] = True
         self._listen_items = [it for it in self._listen_items if not it["selected"]]
         self._rebuild_listen_ui()
 
@@ -2819,24 +3393,25 @@ class FishTalkUI:
         self.stt_status_label.pack(side="right", padx=15, pady=12)
 
         # --- AI Features ---
-        section_header(main, "🤖  AI Features (Qwen 0.5B)")
+        section_header(main, "🤖  AI Features — Language Model")
 
-        from tag_suggester import is_llm_available as _llm_avail, is_qwen_model_ready as _qwen_ready
+        from tag_suggester import (
+            is_llm_available as _llm_avail,
+            is_qwen_model_ready as _qwen_ready,
+            LLM_MODELS as _LLM_MODELS,
+            get_active_llm_key as _get_llm_key,
+            set_active_llm_key as _set_llm_key,
+        )
 
         # llama-cpp-python row
         llama_row = setting_row(main)
         ctk.CTkLabel(
-            llama_row,
-            text="llama-cpp-python",
-            font=(FONT_FAMILY, 13),
-            text_color=COLORS["text_primary"],
+            llama_row, text="llama-cpp-python",
+            font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
-
         ctk.CTkLabel(
-            llama_row,
-            text="Required for AI tags, grammar check, Assisted Flow",
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_muted"],
+            llama_row, text="Required for AI tags, grammar check, translation, Assisted Flow",
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=12)
 
         _llama_installed = _llm_avail()
@@ -2847,36 +3422,59 @@ class FishTalkUI:
             text_color=COLORS["success"] if _llama_installed else COLORS["danger"],
         )
         self.llama_status_label.pack(side="right", padx=(5, 15), pady=12)
-
         if not _llama_installed:
             self.llama_install_btn = ctk.CTkButton(
-                llama_row,
-                text="⬇  Install",
-                width=90,
-                height=28,
-                corner_radius=6,
-                fg_color=COLORS["accent"],
-                hover_color=COLORS["accent_hover"],
-                font=(FONT_FAMILY, 11),
-                command=self._install_llama_cpp,
+                llama_row, text="⬇  Install", width=90, height=28, corner_radius=6,
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                font=(FONT_FAMILY, 11), command=self._install_llama_cpp,
             )
             self.llama_install_btn.pack(side="right", padx=(0, 5), pady=12)
 
-        # Qwen model row
-        qwen_row = setting_row(main)
+        # LLM model selector row
+        llm_sel_row = setting_row(main)
         ctk.CTkLabel(
-            qwen_row,
-            text="Qwen 2.5 0.5B Model",
-            font=(FONT_FAMILY, 13),
-            text_color=COLORS["text_primary"],
+            llm_sel_row, text="LLM Model",
+            font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
+        _llm_key_var = ctk.StringVar(value=_get_llm_key())
+
+        def _on_llm_change(key):
+            _set_llm_key(key)
+            # Pass the key directly so we check the new model's file,
+            # not whatever get_active_llm_key() happens to return right now.
+            _qw_installed = _qwen_ready(key)
+            self.qwen_status_label.configure(
+                text="✅  Ready" if _qw_installed else "❌  Not downloaded",
+                text_color=COLORS["success"] if _qw_installed else COLORS["danger"],
+            )
+            # If model not present, offer to download immediately
+            if not _qw_installed and _llama_installed:
+                if messagebox.askyesno(
+                    "Model Not Downloaded",
+                    f"'{key}' has not been downloaded yet.\n\nDownload it now?",
+                    parent=self.root,
+                ):
+                    self._download_qwen_from_settings()
+
+        ctk.CTkOptionMenu(
+            llm_sel_row,
+            variable=_llm_key_var,
+            values=list(_LLM_MODELS.keys()),
+            width=280, height=30,
+            fg_color=COLORS["bg_input"], button_color=COLORS["accent"],
+            dropdown_fg_color=COLORS["bg_card"], dropdown_hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], font=(FONT_FAMILY, 11),
+            dynamic_resizing=False,
+            command=_on_llm_change,
+        ).pack(side="left", padx=(8, 0), pady=10)
+
+        # Qwen/LLM model status + download row
+        qwen_row = setting_row(main)
         ctk.CTkLabel(
-            qwen_row,
-            text="~400 MB — downloaded on first use",
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_muted"],
-        ).pack(side="left", padx=(0, 10), pady=12)
+            qwen_row, text="Model Status",
+            font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
 
         _qwen_installed = _qwen_ready()
         self.qwen_status_label = ctk.CTkLabel(
@@ -2888,27 +3486,24 @@ class FishTalkUI:
         self.qwen_status_label.pack(side="right", padx=(5, 15), pady=12)
 
         ctk.CTkButton(
-            qwen_row,
-            text="✏  Edit Prompts",
-            width=110,
-            height=28,
-            corner_radius=6,
-            fg_color="#5a3e8a",
-            hover_color="#7b5ea7",
-            font=(FONT_FAMILY, 11),
+            qwen_row, text="✏  Edit Prompts", width=110, height=28, corner_radius=6,
+            fg_color="#5a3e8a", hover_color="#7b5ea7", font=(FONT_FAMILY, 11),
             command=self._open_prompt_editor,
         ).pack(side="right", padx=(0, 5), pady=12)
+
+        if not _qwen_installed and _llama_installed:
+            ctk.CTkButton(
+                qwen_row, text="⬇  Download Model", width=140, height=28, corner_radius=6,
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                font=(FONT_FAMILY, 11), command=self._download_qwen_from_settings,
+            ).pack(side="right", padx=(0, 5), pady=12)
 
         # Install log (hidden until install starts)
         self._llama_log_row = setting_row(main)
         self._llama_log_label = ctk.CTkLabel(
-            self._llama_log_row,
-            text="",
-            font=(FONT_FAMILY, 10),
-            text_color=COLORS["text_secondary"],
-            justify="left",
-            anchor="w",
-            wraplength=560,
+            self._llama_log_row, text="",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+            justify="left", anchor="w", wraplength=560,
         )
         self._llama_log_label.pack(fill="x", padx=15, pady=8)
         self._llama_log_row.pack_forget()  # hidden until needed
@@ -3558,7 +4153,7 @@ class FishTalkUI:
         try:
             result = subprocess.run(
                 ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", audio_path],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=15, creationflags=_NO_WIN,
             )
             info = json.loads(result.stdout)
             existing = {k.lower(): v for k, v in info.get("format", {}).get("tags", {}).items()}
@@ -3617,7 +4212,7 @@ class FishTalkUI:
                     + meta_args
                     + ["-c", "copy", tmp_path]
                 )
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, creationflags=_NO_WIN)
                 if r.returncode != 0:
                     raise RuntimeError(r.stderr[-600:])
                 shutil.move(tmp_path, audio_path)
@@ -4139,6 +4734,16 @@ class FishTalkUI:
 
         if _text_override is None and (_needs_translate or _needs_af):
             from tag_suggester import is_llm_available, is_qwen_model_ready
+            if not is_llm_available():
+                self.root.after(0, lambda: self.tts_status.configure(
+                    text="⚠ llama-cpp-python not installed — translation/AI Flow skipped. See Settings.",
+                    text_color=COLORS["warning"],
+                ))
+            elif not is_qwen_model_ready():
+                self.root.after(0, lambda: self.tts_status.configure(
+                    text="⚠ Qwen model not downloaded — translation/AI Flow skipped. See Settings → Download Model.",
+                    text_color=COLORS["warning"],
+                ))
             if is_llm_available() and is_qwen_model_ready():
                 self._rebuild_playlist_ui()
                 _pre_engine = getattr(self.settings, 'engine', 'fish14')
@@ -4558,12 +5163,13 @@ class FishTalkUI:
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
+                        creationflags=_NO_WIN,
                     )
                     # Get duration via ffprobe
                     probe = subprocess.run(
                         ["ffprobe", "-v", "error", "-show_entries",
                          "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", norm_wav],
-                        capture_output=True, text=True,
+                        capture_output=True, text=True, creationflags=_NO_WIN,
                     )
                     dur_s = float(probe.stdout.strip() or "0")
                     durations_ms.append(int(dur_s * 1000))
@@ -4622,7 +5228,7 @@ class FishTalkUI:
                         "-movflags", "+faststart",
                         out_path,
                     ]
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_NO_WIN)
 
                 total_s = sum(durations_ms) / 1000
                 m, s = divmod(int(total_s), 60)
@@ -5253,8 +5859,11 @@ class FishTalkUI:
         # Save engine choice immediately
         self.settings.engine = new_engine
         if new_engine in FISH_ENGINE_CONFIG:
+            from utils import _OPENAUDIO_ENGINES, FISH_CODE_DIR_OA
             ckpt_folder, _repo, _needs_token = FISH_ENGINE_CONFIG[new_engine]
-            self.settings.fish_speech_path = os.path.join(APP_DIR, "fish-speech")
+            # OpenAudio S1/S1-Mini use fish-speech-latest; Fish14 uses fish-speech
+            code_dir = FISH_CODE_DIR_OA if new_engine in _OPENAUDIO_ENGINES else "fish-speech"
+            self.settings.fish_speech_path = os.path.join(APP_DIR, code_dir)
             self.settings.checkpoint_name = f"checkpoints/{ckpt_folder}"
         self.settings.save()
 
@@ -5570,6 +6179,9 @@ class FishTalkUI:
         from tag_suggester import download_qwen_model
 
         self.qwen_status_label.configure(text="⬇  Downloading…", text_color=COLORS["warning"])
+        # Make sure the log row is visible so progress/errors are readable
+        if hasattr(self, "_llama_log_row"):
+            self._llama_log_row.pack(fill="x", padx=10, pady=2)
 
         def _progress(status, frac):
             self.root.after(0, lambda s=status: self._llama_log_label.configure(

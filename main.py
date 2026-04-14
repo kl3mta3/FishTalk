@@ -10,6 +10,10 @@ import sys
 import threading
 import time
 
+# Must be set before PyTorch is imported anywhere — reduces VRAM fragmentation
+# so large models can load even when the allocator has scattered free blocks.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 # ---------------------------------------------------------------------------
 # Logging setup — do this first before any other imports
 # ---------------------------------------------------------------------------
@@ -577,6 +581,21 @@ class FishTalkApp:
             main_root.destroy()
 
         main_root.protocol("WM_DELETE_WINDOW", on_close)
+
+        # Windows DPI / multi-monitor fix: force a redraw whenever the window
+        # is moved or resized.  Without this, moving to a monitor with a
+        # different DPI scaling causes the background to go transparent.
+        _last_pos = [None]
+        def _on_configure(event):
+            if event.widget is not main_root:
+                return
+            pos = (event.x, event.y)
+            if pos != _last_pos[0]:
+                _last_pos[0] = pos
+                main_root.configure(fg_color=COLORS["bg_dark"])
+                main_root.update_idletasks()
+
+        main_root.bind("<Configure>", _on_configure)
 
         logger.info("FishTalk is ready!")
         main_root.mainloop()

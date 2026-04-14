@@ -27,9 +27,86 @@ logger = logging.getLogger("FishTalk.tags")
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(APP_DIR, "models")
-QWEN_MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
-QWEN_MODEL_PATH = os.path.join(MODELS_DIR, QWEN_MODEL_FILENAME)
-QWEN_HF_REPO = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+
+# ---------------------------------------------------------------------------
+# LLM model catalogue  (key = settings value, shown in UI)
+# ---------------------------------------------------------------------------
+
+LLM_MODELS: dict = {
+    "Qwen 2.5 0.5B (default, ~400 MB)": {
+        "filename":    "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "hf_repo":     "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+        "hf_file":     "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "n_ctx":       2048,
+        "chat_format": "chatml",
+    },
+    "Qwen 3 1.7B (~1 GB)": {
+        "filename":    "qwen3-1.7b-q4_k_m.gguf",
+        "hf_repo":     "Qwen/Qwen3-1.7B-GGUF",
+        "hf_file":     "Qwen3-1.7B-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "chatml",
+    },
+    "Gemma 3 1B (~700 MB)": {
+        "filename":    "gemma-3-1b-it-q4_k_m.gguf",
+        "hf_repo":     "bartowski/gemma-3-1b-it-GGUF",
+        "hf_file":     "gemma-3-1b-it-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "gemma",
+    },
+    "Gemma 3 4B (~2.5 GB)": {
+        "filename":    "gemma-3-4b-it-q4_k_m.gguf",
+        "hf_repo":     "bartowski/gemma-3-4b-it-GGUF",
+        "hf_file":     "gemma-3-4b-it-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "gemma",
+    },
+}
+
+_LLM_SETTINGS_FILE = os.path.join(APP_DIR, "llm_model.txt")
+
+
+def get_active_llm_key() -> str:
+    """Return the currently selected LLM model key (display name)."""
+    try:
+        if os.path.isfile(_LLM_SETTINGS_FILE):
+            with open(_LLM_SETTINGS_FILE, encoding="utf-8") as f:
+                key = f.read().strip()
+            if key in LLM_MODELS:
+                return key
+    except Exception:
+        pass
+    return next(iter(LLM_MODELS))  # default = first entry
+
+
+def set_active_llm_key(key: str):
+    """Persist the selected LLM model key and unload any loaded model."""
+    global _llm
+    if key not in LLM_MODELS:
+        return
+    with open(_LLM_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        f.write(key)
+    # Unload any currently-loaded model so the new one is loaded fresh
+    with _llm_lock:
+        if _llm is not None:
+            del _llm
+            _llm = None
+            import gc; gc.collect()
+
+
+def get_active_model_cfg() -> dict:
+    return LLM_MODELS[get_active_llm_key()]
+
+
+# For backwards-compat: these now resolve dynamically from active model
+@property
+def _qwen_model_path_prop():
+    return os.path.join(MODELS_DIR, get_active_model_cfg()["filename"])
+
+
+QWEN_MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"   # kept for compat
+QWEN_MODEL_PATH     = os.path.join(MODELS_DIR, QWEN_MODEL_FILENAME)
+QWEN_HF_REPO        = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
 
 # ---------------------------------------------------------------------------
 # Tag catalogue (used by both the editor panel and the suggester)
@@ -223,16 +300,27 @@ def install_llama_cpp(
     threading.Thread(target=_worker, daemon=True, name="LlamaCppInstall").start()
 
 
-def is_qwen_model_ready() -> bool:
-    """Return True if the Qwen GGUF model file exists on disk."""
-    return os.path.isfile(QWEN_MODEL_PATH)
+def is_qwen_model_ready(key: str = None) -> bool:
+    """Return True if the model file for *key* (or the active model) exists on disk."""
+    if key is not None and key in LLM_MODELS:
+        cfg = LLM_MODELS[key]
+    else:
+        cfg = get_active_model_cfg()
+    path = os.path.join(MODELS_DIR, cfg["filename"])
+    return os.path.isfile(path)
 
 
 def download_qwen_model(
     on_progress: Optional[Callable[[str, float], None]] = None,
     on_complete: Optional[Callable[[bool, str], None]] = None,
 ):
-    """Download the Qwen 2.5 0.5B Q4_K_M GGUF from HuggingFace in a background thread."""
+    """Download the currently selected LLM model GGUF from HuggingFace in a background thread."""
+
+    cfg      = get_active_model_cfg()
+    filename = cfg["filename"]
+    hf_repo  = cfg["hf_repo"]
+    hf_file  = cfg["hf_file"]
+    dest_path = os.path.join(MODELS_DIR, filename)
 
     def _worker():
         os.makedirs(MODELS_DIR, exist_ok=True)
@@ -245,52 +333,60 @@ def download_qwen_model(
 
         try:
             if on_progress:
-                on_progress(f"Downloading {QWEN_MODEL_FILENAME} (~400 MB)…", 0.05)
-            logger.info("Downloading Qwen model from %s", QWEN_HF_REPO)
+                on_progress(f"Downloading {filename}…", 0.05)
+            logger.info("Downloading LLM model from %s / %s", hf_repo, hf_file)
 
             hf_hub_download(
-                repo_id=QWEN_HF_REPO,
-                filename=QWEN_MODEL_FILENAME,
+                repo_id=hf_repo,
+                filename=hf_file,
                 local_dir=MODELS_DIR,
                 local_dir_use_symlinks=False,
             )
 
             # hf_hub_download may nest inside a subfolder — move to flat MODELS_DIR
-            nested = os.path.join(MODELS_DIR, QWEN_MODEL_FILENAME.split("/")[-1])
-            if not os.path.isfile(QWEN_MODEL_PATH) and os.path.isfile(nested):
+            nested = os.path.join(MODELS_DIR, hf_file.split("/")[-1])
+            if not os.path.isfile(dest_path) and os.path.isfile(nested):
                 import shutil
-                shutil.move(nested, QWEN_MODEL_PATH)
+                shutil.move(nested, dest_path)
 
-            if is_qwen_model_ready():
-                logger.info("Qwen model downloaded: %s", QWEN_MODEL_PATH)
+            if os.path.isfile(dest_path):
+                logger.info("LLM model downloaded: %s", dest_path)
                 if on_complete:
-                    on_complete(True, "Qwen model ready.")
+                    on_complete(True, f"{filename} ready.")
             else:
                 if on_complete:
                     on_complete(False, "Download completed but model file not found.")
         except Exception as exc:
-            logger.error("Qwen download failed: %s", exc)
+            logger.error("LLM download failed: %s", exc)
             if on_complete:
                 on_complete(False, str(exc))
 
-    threading.Thread(target=_worker, daemon=True, name="QwenDownload").start()
+    threading.Thread(target=_worker, daemon=True, name="LLMDownload").start()
 
 
 def _load_llm():
-    """Load the Qwen GGUF model (call inside _llm_lock)."""
+    """Load the active LLM GGUF model (call inside _llm_lock)."""
     global _llm
     if _llm is not None:
         return
     from llama_cpp import Llama
-    logger.info("Loading Qwen model: %s", QWEN_MODEL_PATH)
-    _llm = Llama(
-        model_path=QWEN_MODEL_PATH,
-        n_ctx=2048,
-        n_threads=max(1, os.cpu_count() - 1),
-        n_gpu_layers=0,      # CPU only — keeps VRAM free for TTS
-        verbose=False,
-    )
-    logger.info("Qwen model loaded.")
+    cfg        = get_active_model_cfg()
+    model_path = os.path.join(MODELS_DIR, cfg["filename"])
+    chat_fmt   = cfg.get("chat_format", "chatml")
+    logger.info("Loading LLM model: %s (chat_format=%s)", model_path, chat_fmt)
+    try:
+        _llm = Llama(
+            model_path=model_path,
+            n_ctx=cfg.get("n_ctx", 2048),
+            n_threads=max(1, os.cpu_count() - 1),
+            n_gpu_layers=0,      # CPU only — keeps VRAM free for TTS
+            verbose=False,
+            chat_format=chat_fmt,
+        )
+    except Exception as exc:
+        logger.error("Failed to load LLM model '%s': %s", cfg["filename"], exc, exc_info=True)
+        raise RuntimeError(f"Failed to load model '{cfg['filename']}': {exc}") from exc
+    logger.info("LLM model loaded: %s", cfg["filename"])
 
 
 def prewarm_llm():

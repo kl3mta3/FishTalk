@@ -22,6 +22,109 @@ import soundfile as sf
 logger = logging.getLogger("FishTalk.tts")
 
 
+# ---------------------------------------------------------------------------
+# Tokenizer for OpenAudio S1/S1-Mini checkpoints
+# ---------------------------------------------------------------------------
+
+class _S1MiniTokenizer:
+    """
+    Minimal FishTokenizer-compatible wrapper for OpenAudio S1/S1-Mini.
+
+    S1Mini uses a tiktoken BPE vocabulary (tokenizer.tiktoken) plus a
+    flat mapping of 4096 semantic tokens in special_tokens.json.
+    The fish-speech-latest FishTokenizer wraps AutoTokenizer which fails
+    because the checkpoint has no tokenizer_config.json.  This class
+    bypasses that by loading tiktoken directly.
+    """
+
+    _TIKTOKEN_PATTERN = "|".join([
+        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)",
+        r"\p{P}",
+        r"[^\r\n\p{L}\p{N}]?\p{L}+",
+        r"\p{N}",
+        r" ?[^\s\p{L}\p{N}]+[\r\n]*",
+        r"\s*[\r\n]+",
+        r"\s+(?!\S)",
+        r"\s+",
+    ])
+
+    def __init__(self, checkpoint_dir: str):
+        import base64
+        import json
+        import torch as _torch
+        import tiktoken
+
+        # Load special token → id mapping from special_tokens.json
+        special_path = os.path.join(checkpoint_dir, "special_tokens.json")
+        with open(special_path, encoding="utf-8") as f:
+            self._special: dict = json.load(f)
+
+        # Load tiktoken BPE ranks from tokenizer.tiktoken
+        tok_path = os.path.join(checkpoint_dir, "tokenizer.tiktoken")
+        mergeable_ranks: dict = {}
+        with open(tok_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                token_b64, rank = line.split()
+                mergeable_ranks[base64.b64decode(token_b64)] = int(rank)
+
+        self._enc = tiktoken.core.Encoding(
+            name="s1mini",
+            pat_str=self._TIKTOKEN_PATTERN,
+            mergeable_ranks=mergeable_ranks,
+            special_tokens=self._special,
+        )
+
+        # Build semantic token look-up tables
+        self.semantic_id_to_token_id: dict = {}
+        valid_ids = []
+        for code_idx in range(4096):
+            token = f"<|semantic:{code_idx}|>"
+            if token in self._special:
+                tid = self._special[token]
+                self.semantic_id_to_token_id[code_idx] = tid
+                valid_ids.append(tid)
+
+        if not valid_ids:
+            logger.error("_S1MiniTokenizer: no semantic tokens found — generation will fail")
+            self.semantic_begin_id = 0
+            self.semantic_end_id   = 0
+            self.semantic_map_tensor = _torch.zeros(4096, dtype=_torch.long)
+        else:
+            self.semantic_begin_id = min(valid_ids)
+            self.semantic_end_id   = max(valid_ids)
+            self.semantic_map_tensor = _torch.zeros(4096, dtype=_torch.long)
+            for k, v in self.semantic_id_to_token_id.items():
+                self.semantic_map_tensor[k] = v
+
+        logger.info(
+            "_S1MiniTokenizer: semantic range %d–%d  (%d codes)",
+            self.semantic_begin_id, self.semantic_end_id, len(valid_ids),
+        )
+
+    # --- FishTokenizer-compatible interface --------------------------------
+
+    def get_token_id(self, token: str) -> int:
+        if token in self._special:
+            return self._special[token]
+        try:
+            return self._enc.encode_single_token(token)
+        except Exception:
+            return 0
+
+    def encode(self, text: str, add_special_tokens: bool = False, **kwargs) -> list:
+        return self._enc.encode(text, allowed_special="all")
+
+    def decode(self, tokens, **kwargs) -> str:
+        if hasattr(tokens, "tolist"):
+            tokens = tokens.tolist()
+        return self._enc.decode(tokens)
+
+    # -----------------------------------------------------------------------
+
+
 class TTSEngine:
     """
     Text-to-Speech engine using Fish-Speech.
@@ -76,6 +179,27 @@ class TTSEngine:
     def codec_checkpoint_path(self) -> str:
         return os.path.join(self.checkpoint_path, "codec.pth")
 
+    @property
+    def _is_openaudio_engine(self) -> bool:
+        """True for OpenAudio S1/S1-Mini checkpoints (use fish-speech-latest + DAC codec)."""
+        return os.path.isfile(os.path.join(self.checkpoint_path, "tokenizer.tiktoken"))
+
+    @property
+    def _openaudio_code_path(self) -> str:
+        """Path to fish-speech-latest directory for OpenAudio S1/S1-Mini models."""
+        app_dir = os.path.dirname(os.path.abspath(self.fish_speech_path))
+        return os.path.join(app_dir, "fish-speech-latest")
+
+    @property
+    def _codec_sample_rate(self) -> int:
+        """Sample rate from loaded codec (works for both Firefly and DAC)."""
+        if self._codec is None:
+            return 44100
+        # DAC exposes sample_rate directly; Firefly via spec_transform
+        if hasattr(self._codec, "sample_rate"):
+            return self._codec.sample_rate
+        return self._codec.spec_transform.sample_rate
+
     # ------------------------------------------------------------------
     # Precision detection
     # ------------------------------------------------------------------
@@ -126,6 +250,14 @@ class TTSEngine:
 
                 self._detect_precision()
 
+                # Free any fragmented VRAM before loading large models
+                try:
+                    import torch as _torch
+                    if _torch.cuda.is_available():
+                        _torch.cuda.empty_cache()
+                except Exception:
+                    pass
+
                 if on_progress:
                     on_progress("Loading Fish-Speech LLM...", 0.2)
 
@@ -135,71 +267,176 @@ class TTSEngine:
                 if fs_root not in sys.path:
                     sys.path.insert(0, fs_root)
 
-                try:
-                    from tools.llama.generate import load_model as load_llm_model
-                except ImportError:
-                    # Fallback for Fish-Speech 1.5 path
-                    from fish_speech.models.text2semantic.inference import load_model as load_llm_model
+                if self._is_openaudio_engine:
+                    # ── OpenAudio S1/S1-Mini: fish-speech-latest code + DAC codec ──
+                    oa_code = self._openaudio_code_path
+                    if not os.path.isdir(oa_code):
+                        raise RuntimeError(
+                            "fish-speech-latest directory not found.\n"
+                            "Re-run the FishTalk installer to download it."
+                        )
+                    # Ensure fish-speech-latest is at the front of sys.path.
+                    # Fish 1.4 code is also on sys.path and its fish_speech package
+                    # has no text2semantic/inference.py — Python would pick the wrong
+                    # one if 1.4 appears first.  Remove it, then re-insert at 0.
+                    if oa_code in sys.path:
+                        sys.path.remove(oa_code)
+                    sys.path.insert(0, oa_code)
 
-                logger.info("Loading LLM from: %s", self.checkpoint_path)
-                model, decode_fn = load_llm_model(
-                    checkpoint_path=self.checkpoint_path,
-                    device=self.device,
-                    precision=self._precision,
-                    compile=False,
-                )
+                    # Purge any previously-cached fish_speech modules so Python
+                    # re-imports them from fish-speech-latest, not from fish-speech 1.4.
+                    for _mod_key in list(sys.modules.keys()):
+                        if _mod_key == "fish_speech" or _mod_key.startswith("fish_speech."):
+                            del sys.modules[_mod_key]
 
-                # Setup KV cache
-                with torch.device(self.device):
-                    model.setup_caches(
-                        max_batch_size=1,
-                        max_seq_len=model.config.max_seq_len,
-                        dtype=next(model.parameters()).dtype,
+                    from fish_speech.models.text2semantic.inference import init_model
+                    import torch as _torch
+
+                    def _load_on_device(dev):
+                        return init_model(
+                            checkpoint_path=self.checkpoint_path,
+                            device=dev,
+                            precision=self._precision,
+                            compile=False,
+                        )
+
+                    logger.info("Loading S1/S1-Mini LLM from: %s (device=%s)", self.checkpoint_path, self.device)
+                    try:
+                        model, decode_fn = _load_on_device(self.device)
+                    except RuntimeError as _oom:
+                        if "out of memory" in str(_oom).lower() and self.device != "cpu":
+                            logger.warning("VRAM OOM loading S1Mini — retrying on CPU")
+                            _torch.cuda.empty_cache()
+                            model, decode_fn = _load_on_device("cpu")
+                            self.device = "cpu"
+                        else:
+                            raise
+
+                    # Inject a working tokenizer — the latest code's FishTokenizer
+                    # wraps AutoTokenizer which fails on S1Mini (no tokenizer_config.json).
+                    # We build a minimal but complete tokenizer from the checkpoint files.
+                    model.tokenizer = _S1MiniTokenizer(self.checkpoint_path)
+                    # Inject semantic range into model config so embeddings work correctly.
+                    model.config.semantic_begin_id = model.tokenizer.semantic_begin_id
+                    model.config.semantic_end_id   = model.tokenizer.semantic_end_id
+                    logger.info(
+                        "S1Mini tokenizer: semantic range %d–%d",
+                        model.tokenizer.semantic_begin_id,
+                        model.tokenizer.semantic_end_id,
                     )
 
-                with self._lock:
-                    self._model = model
-                    self._decode_one_token = decode_fn
+                    with self._lock:
+                        self._model = model
+                        self._decode_one_token = decode_fn
 
-                if on_progress:
-                    on_progress("Loading audio codec...", 0.6)
+                    if on_progress:
+                        on_progress("Loading DAC audio codec...", 0.6)
 
-                # v1.4.3 codec loading — load FireflyArchitecture directly without
-                # relying on Hydra's relative config path (which breaks when called
-                # from outside the fish-speech root directory).
-                from omegaconf import OmegaConf
-                from hydra.utils import instantiate
+                    # DAC codec (fish-speech-latest modded_dac_vq.yaml)
+                    from omegaconf import OmegaConf
+                    from hydra.utils import instantiate
+                    dac_cfg_path = os.path.join(
+                        oa_code, "fish_speech", "configs", "modded_dac_vq.yaml"
+                    )
+                    logger.info("Loading DAC codec config: %s", dac_cfg_path)
+                    OmegaConf.register_new_resolver("eval", eval, replace=True)
+                    dac_cfg = OmegaConf.load(dac_cfg_path)
+                    codec = instantiate(dac_cfg)
 
-                config_path = os.path.join(
-                    self.fish_speech_path,
-                    "fish_speech", "configs", "firefly_gan_vq.yaml"
-                )
-                logger.info("Loading codec config from: %s", config_path)
-                OmegaConf.register_new_resolver("eval", eval, replace=True)
-                cfg = OmegaConf.load(config_path)
-                codec = instantiate(cfg)
+                    try:
+                        state_dict = _torch.load(
+                            self.codec_checkpoint_path,
+                            map_location=self.device,
+                            weights_only=False,
+                        )
+                    except RuntimeError as _oom:
+                        if "out of memory" in str(_oom).lower() and self.device != "cpu":
+                            logger.warning("VRAM OOM loading DAC codec — retrying on CPU")
+                            _torch.cuda.empty_cache()
+                            self.device = "cpu"
+                            state_dict = _torch.load(
+                                self.codec_checkpoint_path,
+                                map_location="cpu",
+                                weights_only=False,
+                            )
+                        else:
+                            raise
+                    if "state_dict" in state_dict:
+                        state_dict = state_dict["state_dict"]
+                    if any("generator" in k for k in state_dict):
+                        state_dict = {
+                            k.replace("generator.", ""): v
+                            for k, v in state_dict.items()
+                            if "generator." in k
+                        }
+                    codec.load_state_dict(state_dict, strict=False)
+                    codec.eval()
+                    codec.to(self.device)
+                    with self._lock:
+                        self._codec = codec
 
-                logger.info("Loading codec weights from: %s", self.codec_checkpoint_path)
-                import torch as _torch
-                state_dict = _torch.load(
-                    self.codec_checkpoint_path,
-                    map_location=self.device,
-                    weights_only=False,
-                )
-                if "state_dict" in state_dict:
-                    state_dict = state_dict["state_dict"]
-                if any("generator" in k for k in state_dict):
-                    state_dict = {
-                        k.replace("generator.", ""): v
-                        for k, v in state_dict.items()
-                        if "generator." in k
-                    }
-                codec.load_state_dict(state_dict, strict=False)
-                codec.eval()
-                codec.to(self.device)
+                else:
+                    # ── Fish-Speech 1.4 / Fish-Speech 1.5 ──────────────────────
+                    try:
+                        from tools.llama.generate import load_model as load_llm_model
+                    except ImportError:
+                        from fish_speech.models.text2semantic.inference import load_model as load_llm_model
 
-                with self._lock:
-                    self._codec = codec
+                    logger.info("Loading Fish-Speech LLM from: %s", self.checkpoint_path)
+                    model, decode_fn = load_llm_model(
+                        checkpoint_path=self.checkpoint_path,
+                        device=self.device,
+                        precision=self._precision,
+                        compile=False,
+                    )
+
+                    # Setup KV cache
+                    with torch.device(self.device):
+                        model.setup_caches(
+                            max_batch_size=1,
+                            max_seq_len=model.config.max_seq_len,
+                            dtype=next(model.parameters()).dtype,
+                        )
+
+                    with self._lock:
+                        self._model = model
+                        self._decode_one_token = decode_fn
+
+                    if on_progress:
+                        on_progress("Loading audio codec...", 0.6)
+
+                    # v1.4.3 codec — FireflyArchitecture via firefly_gan_vq.yaml
+                    from omegaconf import OmegaConf
+                    from hydra.utils import instantiate
+
+                    config_path = os.path.join(
+                        self.fish_speech_path,
+                        "fish_speech", "configs", "firefly_gan_vq.yaml"
+                    )
+                    logger.info("Loading Firefly codec config: %s", config_path)
+                    OmegaConf.register_new_resolver("eval", eval, replace=True)
+                    cfg = OmegaConf.load(config_path)
+                    codec = instantiate(cfg)
+
+                    import torch as _torch
+                    state_dict = _torch.load(
+                        self.codec_checkpoint_path,
+                        map_location=self.device,
+                        weights_only=False,
+                    )
+                    if "state_dict" in state_dict:
+                        state_dict = state_dict["state_dict"]
+                    if any("generator" in k for k in state_dict):
+                        state_dict = {
+                            k.replace("generator.", ""): v
+                            for k, v in state_dict.items()
+                            if "generator." in k
+                        }
+                    codec.load_state_dict(state_dict, strict=False)
+                    codec.eval()
+                    codec.to(self.device)
+                    with self._lock:
+                        self._codec = codec
 
                 # torch.compile() — speeds up repeated inference calls.
                 # Works on both CPU and CUDA (PyTorch 2.0+). The first call
@@ -283,7 +520,7 @@ class TTSEngine:
             wav, sr = torchaudio.load(wav_path)
             if wav.shape[0] > 1:
                 wav = wav.mean(dim=0, keepdim=True)
-            target_sr = self._codec.spec_transform.sample_rate
+            target_sr = self._codec_sample_rate
             if sr != target_sr:
                 wav = torchaudio.functional.resample(wav, sr, target_sr)
             audios = wav.to(self.device).unsqueeze(0)  # [1, 1, T]
@@ -341,11 +578,17 @@ class TTSEngine:
                 import torch
                 import torchaudio
                 from utils import normalize_text, preprocess_reference_audio
-                try:
-                    from tools.llama.generate import generate_long
-                except ImportError:
-                    # Fallback for Fish-Speech 1.5 path
+                # Import generate_long from the matching code path
+                if self._is_openaudio_engine:
+                    oa_code = self._openaudio_code_path
+                    if oa_code not in sys.path:
+                        sys.path.insert(0, oa_code)
                     from fish_speech.models.text2semantic.inference import generate_long
+                else:
+                    try:
+                        from tools.llama.generate import generate_long
+                    except ImportError:
+                        from fish_speech.models.text2semantic.inference import generate_long
 
                 if on_progress:
                     on_progress("Preparing generation...", 0.1)
@@ -372,7 +615,7 @@ class TTSEngine:
                     if wav.shape[0] > 1:
                         wav = wav.mean(dim=0, keepdim=True)
                     with self._lock:
-                        target_sr = self._codec.spec_transform.sample_rate
+                        target_sr = self._codec_sample_rate
                         if sr != target_sr:
                             wav = torchaudio.functional.resample(wav, sr, target_sr)
                         audios = wav.to(self.device).unsqueeze(0)
@@ -410,7 +653,8 @@ class TTSEngine:
                 if on_progress:
                     on_progress("Generating speech...", 0.3)
 
-                # Run generation via v1.4.3 generate_long
+                # Run generation via generate_long (works for both Fish14 and S1Mini
+                # — both yield GenerateResponse(action="sample", codes=...) chunks).
                 # Accumulate decoded audio chunks rather than raw codes so we never
                 # hold the entire chapter's VQ codes in memory or run a single
                 # giant decode at the end (avoids OOM on long chapters).
@@ -448,20 +692,30 @@ class TTSEngine:
 
                             # Decode each chunk immediately — used for both
                             # streaming playback and final file assembly.
+                            # Fish14 (Firefly) uses .decode(indices=..., feature_lengths=...)
+                            # S1Mini (DAC) uses .from_indices(codes[None]) → audio
                             try:
                                 chunk_codes = response.codes.to(self.device)
-                                chunk_lengths = torch.tensor(
-                                    [chunk_codes.shape[1]], device=self._codec.device
-                                )
                                 with torch.no_grad():
-                                    chunk_audio = self._codec.decode(
-                                        indices=chunk_codes[None],
-                                        feature_lengths=chunk_lengths,
-                                    )[0].squeeze()
+                                    if self._is_openaudio_engine:
+                                        # DAC: from_indices expects [B, N, T]
+                                        chunk_audio = self._codec.from_indices(
+                                            chunk_codes[None]
+                                        )[0, 0]
+                                    else:
+                                        # Firefly: decode expects named args
+                                        chunk_lengths = torch.tensor(
+                                            [chunk_codes.shape[1]],
+                                            device=self._codec.device,
+                                        )
+                                        chunk_audio = self._codec.decode(
+                                            indices=chunk_codes[None],
+                                            feature_lengths=chunk_lengths,
+                                        )[0].squeeze()
                                 chunk_np = chunk_audio.cpu().detach().float().numpy()
                                 audio_chunks.append(chunk_np)
                                 if on_chunk:
-                                    on_chunk(chunk_np, self._codec.spec_transform.sample_rate)
+                                    on_chunk(chunk_np, self._codec_sample_rate)
                             except Exception as ce:
                                 logger.warning("Chunk decode error (non-fatal): %s", ce)
 
@@ -474,7 +728,7 @@ class TTSEngine:
                 if on_progress:
                     on_progress("Assembling audio...", 0.8)
 
-                sample_rate = self._codec.spec_transform.sample_rate
+                sample_rate = self._codec_sample_rate
 
                 # Apply cadence: insert silence between decoded chunks
                 # cadence 0.0 = no pauses, 1.0 = ~600 ms pause between chunks
