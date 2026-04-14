@@ -28,6 +28,7 @@ from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE, DEFAULT_VOICE_DISPLAY, i
 from utils import (
     get_ram_usage,
     get_vram_usage,
+    get_cpu_usage,
     is_ffmpeg_available,
     read_file,
     export_mp3,
@@ -795,6 +796,43 @@ class FishTalkUI:
             button_hover_color=COLORS["accent"],
         ).pack()
 
+        # Translate controls (next to timestamps)
+        from tag_suggester import TRANSLATE_LANGUAGES
+        _tr_frame = ctk.CTkFrame(stt_controls, fg_color="transparent")
+        _tr_frame.pack(side="left", padx=(20, 0))
+        ctk.CTkLabel(
+            _tr_frame,
+            text="Translate to",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor="w")
+        _tr_inner = ctk.CTkFrame(_tr_frame, fg_color="transparent")
+        _tr_inner.pack()
+        self._stt_translate_lang_var = ctk.StringVar(value=TRANSLATE_LANGUAGES[0])
+        ctk.CTkOptionMenu(
+            _tr_inner,
+            variable=self._stt_translate_lang_var,
+            values=TRANSLATE_LANGUAGES,
+            width=130, height=26,
+            fg_color=COLORS["bg_input"],
+            button_color="#e76f51",
+            button_hover_color="#f4a261",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+        ).pack(side="left", padx=(0, 4))
+        self._stt_translate_btn = ctk.CTkButton(
+            _tr_inner,
+            text="🌐  Translate",
+            fg_color="#e76f51",
+            hover_color="#f4a261",
+            font=(FONT_FAMILY, 11, "bold"),
+            height=26, width=110,
+            corner_radius=6,
+            command=self._stt_translate,
+        )
+        self._stt_translate_btn.pack(side="left")
+
         # File info label
         self.stt_file_label = ctk.CTkLabel(
             stt_controls,
@@ -864,6 +902,19 @@ class FishTalkUI:
             export_frame, text="📖  Save .epub",
             command=lambda: self._stt_export("epub"), **exp_style,
         ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            export_frame,
+            text="➕  Send to Speech Lab",
+            command=self._stt_send_to_speech_lab,
+            fg_color=COLORS["success"],
+            hover_color="#05b886",
+            text_color="#0a0a18",
+            font=(FONT_FAMILY, 12, "bold"),
+            corner_radius=8,
+            height=34,
+            width=185,
+        ).pack(side="right")
 
         # Store current audio path for transcription
         self._stt_audio_path = None
@@ -3228,6 +3279,44 @@ class FishTalkUI:
             )
             self.fish_status_label.pack(side="right", padx=15, pady=12)
             self._validate_fish_path()
+
+            # Chunk Length slider
+            chunk_row = setting_row(main)
+            _chunk_init = getattr(self.settings, "tts_chunk_length", 100)
+            _chunk_lbl = ctk.CTkLabel(
+                chunk_row,
+                text=f"Chunk Length:  {int(_chunk_init)}",
+                font=(FONT_FAMILY, 13),
+                text_color=COLORS["text_primary"],
+            )
+            _chunk_lbl.pack(side="left", padx=15, pady=10)
+            ctk.CTkLabel(
+                chunk_row,
+                text="Tokens per decode step — lower = less VRAM, higher = slightly faster",
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_muted"],
+            ).pack(side="left", padx=(0, 10), pady=10)
+
+            def _on_chunk_change(v):
+                val = int(round(float(v) / 10) * 10)
+                _chunk_lbl.configure(text=f"Chunk Length:  {val}")
+                self.settings.tts_chunk_length = val
+                self.settings.save()
+                if self.tts and hasattr(self.tts, "chunk_length"):
+                    self.tts.chunk_length = val
+
+            _chunk_sl = ctk.CTkSlider(
+                chunk_row,
+                from_=50, to=300,
+                number_of_steps=25,
+                command=_on_chunk_change,
+                progress_color=COLORS["accent"],
+                button_color=COLORS["accent_light"],
+                width=180,
+                height=16,
+            )
+            _chunk_sl.set(_chunk_init)
+            _chunk_sl.pack(side="right", padx=15, pady=10)
         else:
             # --- Kokoro Engine Info ---
             section_header(main, "🎙  Kokoro Engine")
@@ -3338,6 +3427,84 @@ class FishTalkUI:
             text_color=COLORS["text_secondary"],
         )
         self.vram_label.pack(side="right", padx=15, pady=12)
+
+        # CPU usage readout
+        cpu_row = setting_row(main)
+        ctk.CTkLabel(
+            cpu_row,
+            text="CPU Usage",
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
+
+        self.cpu_label = ctk.CTkLabel(
+            cpu_row,
+            text="Calculating...",
+            font=(FONT_FAMILY, 12),
+            text_color=COLORS["text_secondary"],
+        )
+        self.cpu_label.pack(side="right", padx=15, pady=12)
+
+        # CPU thread limit slider
+        import os as _os
+        _logical_cores = __import__("psutil").cpu_count(logical=True) or 8
+        _cur_threads = getattr(self.settings, "cpu_threads", 0)
+        cpu_thread_row = setting_row(main)
+        ctk.CTkLabel(
+            cpu_thread_row,
+            text="CPU Thread Limit",
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=10)
+        ctk.CTkLabel(
+            cpu_thread_row,
+            text="Limits threads used for CPU inference — prevents system freeze. 0 = all cores.",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(0, 10), pady=10)
+
+        _thread_lbl = ctk.CTkLabel(
+            cpu_thread_row,
+            text=f"{_cur_threads} (auto)" if _cur_threads == 0 else str(_cur_threads),
+            font=(FONT_FAMILY, 12),
+            text_color=COLORS["text_secondary"],
+            width=70,
+        )
+        _thread_lbl.pack(side="right", padx=(0, 5), pady=10)
+
+        def _on_thread_change(v):
+            val = int(round(float(v)))
+            _thread_lbl.configure(text=f"{val} (auto)" if val == 0 else str(val))
+            self.settings.cpu_threads = val
+            self.settings.save()
+            # Apply immediately
+            if val > 0:
+                try:
+                    import torch as _t
+                    _t.set_num_threads(val)
+                    _t.set_num_interop_threads(max(1, val // 2))
+                except Exception:
+                    pass
+            else:
+                try:
+                    import torch as _t
+                    import psutil as _ps
+                    _t.set_num_threads(_ps.cpu_count(logical=True) or 4)
+                except Exception:
+                    pass
+
+        _thread_sl = ctk.CTkSlider(
+            cpu_thread_row,
+            from_=0, to=_logical_cores,
+            number_of_steps=_logical_cores,
+            command=_on_thread_change,
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent_light"],
+            width=200,
+            height=16,
+        )
+        _thread_sl.set(_cur_threads)
+        _thread_sl.pack(side="right", padx=15, pady=10)
 
         # ffmpeg status
         ffmpeg_row = setting_row(main)
@@ -5426,6 +5593,190 @@ class FishTalkUI:
         except Exception as exc:
             messagebox.showerror("Error", f"Export failed:\n{exc}")
 
+    def _stt_strip_timestamps(self, text: str) -> str:
+        """Remove [X.Xs → Y.Ys] markers and status lines from a transcript."""
+        clean = re.sub(r'\[\d+\.\d+s\s*[→>]\s*\d+\.\d+s\]\s*', '', text)
+        clean = re.sub(r'---[^\n]*---\n?', '', clean)
+        clean = re.sub(r'\n{3,}', '\n\n', clean)
+        return clean.strip()
+
+    def _stt_translate(self):
+        """Translate the current transcript and show a comparison dialog."""
+        self.stt_textbox.configure(state="normal")
+        text = self.stt_textbox.get("1.0", "end").strip()
+        self.stt_textbox.configure(state="disabled")
+
+        if not text or text == "Transcription will appear here in real time...":
+            messagebox.showinfo("FishTalk", "No transcription to translate.")
+            return
+
+        from tag_suggester import is_llm_available, is_qwen_model_ready
+        if not is_llm_available():
+            messagebox.showerror("FishTalk", "llama-cpp-python not installed — cannot translate.\nInstall it in Settings.")
+            return
+        if not is_qwen_model_ready():
+            messagebox.showerror("FishTalk", "LLM model not downloaded — cannot translate.\nDownload it in Settings.")
+            return
+
+        clean = self._stt_strip_timestamps(text)
+        lang  = self._stt_translate_lang_var.get()
+        self._stt_translate_btn.configure(state="disabled", text="Translating…")
+
+        def _run():
+            try:
+                from tag_suggester import translate_for_voice
+                translated = translate_for_voice(clean, lang)
+                self.root.after(0, lambda: _show(translated))
+            except Exception as exc:
+                self.root.after(0, lambda: messagebox.showerror("Translate Failed", str(exc)))
+            finally:
+                self.root.after(0, lambda: self._stt_translate_btn.configure(
+                    state="normal", text="🌐  Translate"
+                ))
+
+        def _show(translated):
+            self._stt_show_translate_dialog(clean, translated, lang)
+
+        threading.Thread(target=_run, daemon=True, name="STT-Translate").start()
+
+    def _stt_show_translate_dialog(self, original: str, translated: str, lang: str):
+        """Show side-by-side original vs translated transcript with save/send options."""
+        win = ctk.CTkToplevel(self.root)
+        win.title(f"Translation → {lang}")
+        win.geometry("1060x640")
+        win.configure(fg_color=COLORS["bg_dark"])
+        win.grab_set()
+
+        ctk.CTkLabel(
+            win,
+            text=f"Translation  →  {lang}",
+            font=(FONT_FAMILY, 16, "bold"),
+            text_color=COLORS["accent_light"],
+        ).pack(pady=(15, 5))
+
+        # Two-column area
+        cols = ctk.CTkFrame(win, fg_color="transparent")
+        cols.pack(fill="both", expand=True, padx=15, pady=5)
+
+        for title, content, editable in [
+            ("Original", original, False),
+            (f"Translated → {lang}", translated, True),
+        ]:
+            card = ctk.CTkFrame(cols, fg_color=COLORS["bg_card"], corner_radius=8)
+            card.pack(side="left", fill="both", expand=True, padx=6)
+            ctk.CTkLabel(
+                card, text=title,
+                font=(FONT_FAMILY, 12, "bold"),
+                text_color=COLORS["text_secondary"],
+            ).pack(anchor="w", padx=10, pady=(8, 0))
+            box = ctk.CTkTextbox(
+                card, fg_color=COLORS["bg_input"],
+                text_color=COLORS["text_primary"],
+                font=(FONT_FAMILY, 12), wrap="word",
+            )
+            box.pack(fill="both", expand=True, padx=8, pady=8)
+            box.insert("1.0", content)
+            if not editable:
+                box.configure(state="disabled")
+            if editable:
+                self._stt_tr_translated_box = box  # keep ref for save
+
+        # Bottom bar
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=15, pady=(5, 15))
+
+        stem = os.path.splitext(os.path.basename(
+            self._stt_audio_path or "transcript"
+        ))[0]
+        save_dir = os.path.dirname(self._stt_audio_path) if self._stt_audio_path else APP_DIR
+
+        def _save_translated():
+            tr_text = self._stt_tr_translated_box.get("1.0", "end").strip()
+            path = filedialog.asksaveasfilename(
+                title="Save Translated Transcript",
+                defaultextension=".txt",
+                initialfile=f"{stem} (Original-{lang}).txt",
+                filetypes=[("Text files", "*.txt")],
+                parent=win,
+            )
+            if not path:
+                return
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(tr_text)
+            messagebox.showinfo("Saved", f"Saved to:\n{path}", parent=win)
+
+        def _send(content, suffix):
+            filename = f"{stem}{suffix}.txt"
+            path = os.path.join(save_dir, filename)
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                self._tts_add_file(path)
+                self.tabview.set("🔊  Speech Lab")
+                win.destroy()
+            except Exception as exc:
+                messagebox.showerror("Error", f"Could not send to Speech Lab:\n{exc}", parent=win)
+
+        _btn = {"font": (FONT_FAMILY, 12), "corner_radius": 8, "height": 34}
+
+        ctk.CTkButton(
+            btns, text="💾  Save Translated", width=160,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=_save_translated, **_btn,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns, text="➕  Send Original to Speech Lab", width=220,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=lambda: _send(original, ""),
+            **_btn,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns, text=f"➕  Send Translation to Speech Lab", width=240,
+            fg_color=COLORS["success"], hover_color="#05b886",
+            text_color="#0a0a18",
+            command=lambda: _send(
+                self._stt_tr_translated_box.get("1.0", "end").strip(),
+                f" (Original-{lang})",
+            ),
+            **_btn,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns, text="✕  Close", width=90,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=win.destroy, **_btn,
+        ).pack(side="right")
+
+    def _stt_send_to_speech_lab(self):
+        """Save clean transcript (no timestamps) and add it to the Speech Lab playlist."""
+        self.stt_textbox.configure(state="normal")
+        text = self.stt_textbox.get("1.0", "end").strip()
+        self.stt_textbox.configure(state="disabled")
+
+        if not text or text == "Transcription will appear here in real time...":
+            messagebox.showinfo("FishTalk", "No transcription to send.")
+            return
+
+        clean = self._stt_strip_timestamps(text)
+        stem  = os.path.splitext(os.path.basename(
+            self._stt_audio_path or "transcript"
+        ))[0]
+        save_dir = os.path.dirname(self._stt_audio_path) if self._stt_audio_path else APP_DIR
+        path = os.path.join(save_dir, f"{stem}.txt")
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(clean)
+            self._tts_add_file(path)
+            self.tabview.set("🔊  Speech Lab")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Could not send to Speech Lab:\n{exc}")
+
     def _open_prompt_editor(self):
         """Open a window to view and edit all Qwen AI prompts."""
         from tag_suggester import get_prompt, set_prompt, save_prompts, reset_prompts
@@ -6264,6 +6615,26 @@ class FishTalkUI:
                 self.vram_label.configure(text="N/A (No CUDA GPU)")
         except Exception:
             self.vram_label.configure(text="Unable to read")
+
+        try:
+            cpu = get_cpu_usage()
+            _thread_info = (
+                f"  |  Threads: {cpu['threads_torch']}/{cpu['cores']}"
+                if cpu.get("threads_torch") else f"  |  Cores: {cpu['cores']}"
+            )
+            _color = (
+                COLORS["danger"] if cpu["percent"] > 90
+                else COLORS["warning"] if cpu["percent"] > 70
+                else COLORS["text_secondary"]
+            )
+            if hasattr(self, "cpu_label"):
+                self.cpu_label.configure(
+                    text=f"{cpu['percent']:.0f}%{_thread_info}",
+                    text_color=_color,
+                )
+        except Exception:
+            if hasattr(self, "cpu_label"):
+                self.cpu_label.configure(text="Unable to read")
 
         # Schedule next update
         self.root.after(5000, self._update_ram)

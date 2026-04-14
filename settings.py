@@ -33,6 +33,8 @@ DEFAULTS = {
     "tts_top_p": 0.7,
     "tts_repetition_penalty": 1.2,
     "tts_chunk_length": 150,
+    # CPU thread limit (0 = use all cores)
+    "cpu_threads": 0,
 }
 
 

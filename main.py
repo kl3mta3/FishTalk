@@ -10,9 +10,9 @@ import sys
 import threading
 import time
 
-# Must be set before PyTorch is imported anywhere — reduces VRAM fragmentation
-# so large models can load even when the allocator has scattered free blocks.
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+# Reduce VRAM fragmentation. expandable_segments requires CUDA 11.8+; use
+# cudaMallocAsync (available since CUDA 11.4) as a safer cross-version option.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "backend:cudaMallocAsync")
 
 # ---------------------------------------------------------------------------
 # Logging setup — do this first before any other imports
@@ -21,12 +21,19 @@ log_handlers = []
 if sys.stdout is None:
     # Running under pythonw / no console. Redirect stdout/stderr to log file to prevent crashes.
     log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fishtalk_error.log")
-    f = open(log_path, "a")
+    f = open(log_path, "a", encoding="utf-8")
     sys.stdout = f
     sys.stderr = f
-    log_handlers.append(logging.FileHandler(log_path))
+    log_handlers.append(logging.FileHandler(log_path, encoding="utf-8"))
 else:
-    log_handlers.append(logging.StreamHandler(sys.stdout))
+    # Force UTF-8 on the console stream so Unicode characters in log messages
+    # (arrows, emoji, non-Latin script from translations, etc.) never crash the
+    # logger on Windows systems whose console uses cp1252.
+    import io
+    _utf8_stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+    )
+    log_handlers.append(logging.StreamHandler(_utf8_stdout))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -333,6 +340,17 @@ class FishTalkApp:
 
         def _init():
             try:
+                # ── CPU thread limit ─────────────────────────────────────────
+                _cpu_threads = getattr(self.settings, "cpu_threads", 0)
+                if _cpu_threads > 0:
+                    try:
+                        import torch as _torch
+                        _torch.set_num_threads(_cpu_threads)
+                        _torch.set_num_interop_threads(max(1, _cpu_threads // 2))
+                        logger.info("CPU threads limited to %d", _cpu_threads)
+                    except Exception as _te:
+                        logger.warning("Could not set CPU thread limit: %s", _te)
+
                 # ── FFmpeg ───────────────────────────────────────────────────
                 update_splash("Checking FFmpeg…", 0.03)
                 setup_ffmpeg(on_progress=update_splash)
@@ -355,7 +373,9 @@ class FishTalkApp:
                         update_splash("Kokoro models found", 0.12)
                         logger.info("Engine: Kokoro (models present)")
                 else:
-                    _fs_path  = os.path.join(APP_DIR, "fish-speech")
+                    # OpenAudio engines (s1mini, s1) use fish-speech-latest; Fish14 uses fish-speech
+                    _code_dir  = "fish-speech-latest" if _engine in ("s1mini", "s1") else "fish-speech"
+                    _fs_path   = os.path.join(APP_DIR, _code_dir)
                     _ckpt_name = FISH_ENGINE_CONFIG.get(_engine, FISH_ENGINE_CONFIG["fish14"])[0]
                     _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1 Full"}
                     _eng_label  = _eng_labels.get(_engine, _engine)

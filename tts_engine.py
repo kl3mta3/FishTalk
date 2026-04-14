@@ -191,6 +191,13 @@ class TTSEngine:
         return os.path.join(app_dir, "fish-speech-latest")
 
     @property
+    def _codec_device(self) -> str:
+        """Device to use for codec operations.
+        OpenAudio DAC codec runs on CPU to keep VRAM free for the LLM.
+        Fish14 Firefly codec runs on the same device as the model."""
+        return "cpu" if self._is_openaudio_engine else self.device
+
+    @property
     def _codec_sample_rate(self) -> int:
         """Sample rate from loaded codec (works for both Firefly and DAC)."""
         if self._codec is None:
@@ -371,7 +378,10 @@ class TTSEngine:
                         }
                     codec.load_state_dict(state_dict, strict=False)
                     codec.eval()
-                    codec.to(self.device)
+                    # DAC codec always runs on CPU for OpenAudio engines.
+                    # The LLM transformer needs every byte of VRAM; the codec
+                    # is ~200 MB and runs once per chunk — CPU is fast enough.
+                    codec.to("cpu")
                     with self._lock:
                         self._codec = codec
 
@@ -434,15 +444,15 @@ class TTSEngine:
                         }
                     codec.load_state_dict(state_dict, strict=False)
                     codec.eval()
-                    codec.to(self.device)
+                    codec.to(self.device)  # Fish14 Firefly codec stays on GPU
                     with self._lock:
                         self._codec = codec
 
-                # torch.compile() — speeds up repeated inference calls.
-                # Works on both CPU and CUDA (PyTorch 2.0+). The first call
-                # after loading will be slower while it JIT-compiles; all
-                # subsequent calls benefit. Guarded so it never breaks loading.
-                if hasattr(torch, "compile"):
+                # torch.compile() — speeds up repeated inference calls on Fish14.
+                # SKIP for OpenAudio (S1/S1-Mini): the compiled graph pre-allocates
+                # CUDA workspace that can never be reclaimed, which exhausts VRAM on
+                # 12 GB cards and also prevents CPU fallback during OOM.
+                if hasattr(torch, "compile") and not self._is_openaudio_engine:
                     try:
                         if on_progress:
                             on_progress("Optimizing model (torch.compile)...", 0.85)
@@ -523,8 +533,8 @@ class TTSEngine:
             target_sr = self._codec_sample_rate
             if sr != target_sr:
                 wav = torchaudio.functional.resample(wav, sr, target_sr)
-            audios = wav.to(self.device).unsqueeze(0)  # [1, 1, T]
-            audio_lengths = torch.tensor([audios.shape[2]], device=self.device, dtype=torch.long)
+            audios = wav.to(self._codec_device).unsqueeze(0)  # [1, 1, T]
+            audio_lengths = torch.tensor([audios.shape[2]], device=self._codec_device, dtype=torch.long)
             indices = self._codec.encode(audios, audio_lengths)[0][0]  # [codebooks, T]
 
         npy_data = indices.cpu().detach().numpy()
@@ -578,6 +588,16 @@ class TTSEngine:
                 import torch
                 import torchaudio
                 from utils import normalize_text, preprocess_reference_audio
+
+                # Free fragmented VRAM before starting — reserved-but-unallocated
+                # memory from the model load can block codec allocations.
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                except Exception:
+                    pass
+
                 # Import generate_long from the matching code path
                 if self._is_openaudio_engine:
                     oa_code = self._openaudio_code_path
@@ -618,8 +638,8 @@ class TTSEngine:
                         target_sr = self._codec_sample_rate
                         if sr != target_sr:
                             wav = torchaudio.functional.resample(wav, sr, target_sr)
-                        audios = wav.to(self.device).unsqueeze(0)
-                        audio_lengths = torch.tensor([audios.shape[2]], device=self.device, dtype=torch.long)
+                        audios = wav.to(self._codec_device).unsqueeze(0)
+                        audio_lengths = torch.tensor([audios.shape[2]], device=self._codec_device, dtype=torch.long)
                         tokens = self._codec.encode(audios, audio_lengths)[0][0]
                     if tokens.shape[1] > MAX_PROMPT_TOKENS:
                         logger.warning(
@@ -659,11 +679,10 @@ class TTSEngine:
                 # hold the entire chapter's VQ codes in memory or run a single
                 # giant decode at the end (avoids OOM on long chapters).
                 audio_chunks = []
-                # Use the model's full context window so the rolling prior-context
-                # budget (max_length - 1024 - prompt_tokens) is as large as possible.
-                max_seq_len = self._model.config.max_seq_len
                 with self._lock:
-                    generator = generate_long(
+                    # Build kwargs common to both Fish14 and S1Mini generate_long signatures.
+                    # fish-speech-latest removed max_length and added top_k.
+                    _gen_kwargs = dict(
                         model=self._model,
                         device=self.device,
                         decode_one_token=self._decode_one_token,
@@ -675,11 +694,19 @@ class TTSEngine:
                         temperature=self.temperature,
                         compile=False,
                         iterative_prompt=True,
-                        max_length=max_seq_len,
                         chunk_length=int(self.chunk_length),
                         prompt_text=prompt_text_list,
                         prompt_tokens=prompt_tokens_list,
                     )
+                    # Fish14's generate_long uses max_length; latest uses top_k instead
+                    import inspect as _inspect
+                    _gl_sig = _inspect.signature(generate_long).parameters
+                    if "max_length" in _gl_sig:
+                        _gen_kwargs["max_length"] = self._model.config.max_seq_len
+                    if "top_k" in _gl_sig:
+                        _gen_kwargs["top_k"] = 30
+
+                    generator = generate_long(**_gen_kwargs)
 
                     for response in generator:
                         if self._cancel_event.is_set():
@@ -695,18 +722,20 @@ class TTSEngine:
                             # Fish14 (Firefly) uses .decode(indices=..., feature_lengths=...)
                             # S1Mini (DAC) uses .from_indices(codes[None]) → audio
                             try:
-                                chunk_codes = response.codes.to(self.device)
+                                # Route codes to the codec's device.
+                                # OpenAudio DAC codec lives on CPU; Fish14 Firefly on GPU.
+                                chunk_codes = response.codes.to(self._codec_device)
                                 with torch.no_grad():
                                     if self._is_openaudio_engine:
-                                        # DAC: from_indices expects [B, N, T]
+                                        # DAC: from_indices expects [B, N, T] — runs on CPU
                                         chunk_audio = self._codec.from_indices(
                                             chunk_codes[None]
                                         )[0, 0]
                                     else:
-                                        # Firefly: decode expects named args
+                                        # Firefly: decode expects named args — runs on GPU
                                         chunk_lengths = torch.tensor(
                                             [chunk_codes.shape[1]],
-                                            device=self._codec.device,
+                                            device=self._codec_device,
                                         )
                                         chunk_audio = self._codec.decode(
                                             indices=chunk_codes[None],

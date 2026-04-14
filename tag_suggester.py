@@ -481,7 +481,8 @@ def generate_tags(
                         {"role": "system", "content": _PROMPTS.get("tag_gen", _SYSTEM_PROMPT)},
                         {"role": "user", "content": chunk},
                     ],
-                    max_tokens=int(len(chunk) * 1.5) + 64,
+                    # ~4 chars per token; tags add ~50% overhead; cap at 600
+                    max_tokens=min(600, int(len(chunk) / 4 * 2) + 64),
                     temperature=0.2,
                     top_p=0.9,
                 )
@@ -548,7 +549,8 @@ def grammar_check(
                         {"role": "system", "content": _PROMPTS.get("grammar", _GRAMMAR_SYSTEM_PROMPT)},
                         {"role": "user",   "content": chunk},
                     ],
-                    max_tokens=int(len(chunk) * 1.5) + 64,
+                    # ~4 chars per token; grammar output ≈ input length; cap at 500
+                    max_tokens=min(500, int(len(chunk) / 4 * 1.5) + 64),
                     temperature=0.1,   # lower = more conservative corrections
                     top_p=0.9,
                 )
@@ -782,7 +784,8 @@ def enhance_for_tts(
                         {"role": "system", "content": system_prompt},
                         {"role": "user",   "content": chunk},
                     ],
-                    max_tokens=int(len(chunk) * 1.6) + 64,
+                    # ~4 chars per token; Assisted Flow output ≈ input + TTS tags; cap at 700
+                    max_tokens=min(700, int(len(chunk) / 4 * 2) + 100),
                     temperature=0.3,
                     top_p=0.9,
                 )
@@ -849,7 +852,7 @@ def translate_for_voice(
     if not paragraphs:
         return text
 
-    logger.info("translate_for_voice: translating %d chars → %s [%s]", len(text), target_language, tone)
+    logger.info("translate_for_voice: translating %d chars -> %s [%s]", len(text), target_language, tone)
 
     result_parts = []
     for para in paragraphs:
@@ -858,12 +861,17 @@ def translate_for_voice(
         for chunk in chunks:
             try:
                 with _llm_lock:
+                    # Translation output ≈ same length as input in tokens.
+                    # ~4 chars per token, ×2 expansion headroom, capped at 600.
+                    # The old formula (len*3 + 256) produced 1000+ tokens for a
+                    # short paragraph, causing multi-minute waits on a 0.5B model.
+                    _max_tok = min(600, int(len(chunk) / 4 * 2) + 100)
                     output = _llm.create_chat_completion(
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user",   "content": chunk},
                         ],
-                        max_tokens=int(len(chunk) * 3) + 256,
+                        max_tokens=_max_tok,
                         temperature=0.1,
                         top_p=0.95,
                         repeat_penalty=1.1,
@@ -920,7 +928,8 @@ def rewrite_tone(
                         {"role": "system", "content": system_prompt},
                         {"role": "user",   "content": chunk},
                     ],
-                    max_tokens=int(len(chunk) * 2.0) + 128,
+                    # ~4 chars per token; tone rewrite ≈ same length; cap at 700
+                    max_tokens=min(700, int(len(chunk) / 4 * 2) + 128),
                     temperature=0.7,
                     top_p=0.95,
                 )

@@ -800,6 +800,29 @@ def export_epub(text: str, path: str, title: str = "Document") -> str:
 # System monitoring
 # ---------------------------------------------------------------------------
 
+def get_cpu_usage() -> dict:
+    """
+    Return CPU usage info.
+
+    Returns dict with keys:
+      - percent: float — system-wide CPU usage percentage
+      - cores: int — logical CPU count
+      - threads_torch: int — threads currently set for PyTorch (0 = auto)
+    """
+    percent = psutil.cpu_percent(interval=None)
+    cores = psutil.cpu_count(logical=True) or 1
+    try:
+        import torch
+        threads_torch = torch.get_num_threads()
+    except Exception:
+        threads_torch = 0
+    return {
+        "percent": percent,
+        "cores": cores,
+        "threads_torch": threads_torch,
+    }
+
+
 def get_ram_usage() -> dict:
     """
     Return RAM usage info for the current process and system.
