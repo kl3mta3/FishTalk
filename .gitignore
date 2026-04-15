@@ -86,3 +86,4 @@ desktop.ini
 *.gguf
 *.setup_complete
 *kokofish_error
+*settings
