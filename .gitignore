@@ -62,6 +62,9 @@ wiki/
 # KokoFish ExE Relay
 KokoFish_relay/
 
+# github folder 
+.github/
+
 # =============================================================================
 # Voice profiles — user-generated, keep folder structure via .gitkeep
 # =============================================================================

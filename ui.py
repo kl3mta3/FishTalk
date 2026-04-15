@@ -3293,12 +3293,20 @@ class KoKoFishUI:
         prof_row = ctk.CTkFrame(left, fg_color="transparent")
         prof_row.pack(fill="x", padx=8, pady=(0, 6))
 
+        def _new_profile():
+            """Clear everything to start a fresh profile."""
+            self._script_profile = default_profile()
+            self._script_profile_name.set("")
+            narrator_voice_var.set("")
+            _refresh_char_list()
+            status_var.set("New profile — add characters and save.")
+
         profiles_now = list_profiles()
         profile_menu = ctk.CTkOptionMenu(
             prof_row,
             variable=self._script_profile_name,
             values=profiles_now if profiles_now else [""],
-            width=160,
+            width=150,
             fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"],
             button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
             command=_load_profile_by_name,
@@ -3306,13 +3314,20 @@ class KoKoFishUI:
         profile_menu.pack(side="left", padx=(0, 4))
 
         ctk.CTkButton(
-            prof_row, text="Save", width=52, height=30,
+            prof_row, text="New", width=48, height=30,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            command=_new_profile,
+        ).pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            prof_row, text="Save", width=48, height=30,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=_save_profile,
         ).pack(side="left", padx=2)
 
         ctk.CTkButton(
-            prof_row, text="Delete", width=58, height=30,
+            prof_row, text="Delete", width=52, height=30,
             fg_color="#5a2020", hover_color="#7a3030",
             command=_delete_profile,
         ).pack(side="left", padx=2)
@@ -3466,29 +3481,28 @@ class KoKoFishUI:
             """Switch toolbar to idle / generating / ready / playing / paused."""
             self._script_state = state
             no_audio  = self._script_combined is None
-            idle      = state == "idle"
             genning   = state == "generating"
             ready     = state in ("ready", "playing", "paused")
             playing   = state == "playing"
 
             _btn_refs["generate"].configure(
-                text="▶  Generate",
                 state="disabled" if genning else "normal",
                 fg_color=COLORS["accent"] if not genning else COLORS["bg_input"],
                 hover_color=COLORS["accent_hover"] if not genning else COLORS["bg_input"],
             )
-            _btn_refs["cancel"].configure(
-                state="normal" if genning else "disabled",
-                fg_color="#5a2020" if genning else COLORS["bg_card"],
-                text_color=COLORS["text_primary"] if genning else COLORS["text_secondary"],
-            )
+            # Cancel: show only while generating, hidden otherwise
+            if genning:
+                _btn_refs["cancel"].pack(side="right", padx=(3, 0))
+            else:
+                _btn_refs["cancel"].pack_forget()
+
             _btn_refs["play_pause"].configure(
                 text="⏸  Pause" if playing else "▶  Play",
                 state="normal" if (ready and not genning) else "disabled",
                 fg_color=COLORS["accent"] if ready else COLORS["bg_card"],
                 text_color=COLORS["text_primary"] if ready else COLORS["text_secondary"],
             )
-            _btn_refs["export_audio"].configure(
+            _btn_refs["save_audio"].configure(
                 state="normal" if (ready and not no_audio) else "disabled",
                 fg_color=COLORS["bg_input"] if (ready and not no_audio) else COLORS["bg_card"],
                 text_color=COLORS["text_primary"] if (ready and not no_audio) else COLORS["text_secondary"],
@@ -3562,8 +3576,93 @@ class KoKoFishUI:
 
             def _worker():
                 import numpy as np
+                import queue as _q
                 engine = getattr(self.settings, "engine", "kokoro")
                 sr = 44100
+
+                def _synth_blocking(text, voice_name):
+                    """
+                    Wrap self.tts.generate() (callback-based) into a blocking
+                    generator that yields (audio_np, sample_rate) tuples.
+                    Works for both KokoroEngine and TTSEngine.
+                    """
+                    chunk_q  = _q.Queue()
+                    done_evt = threading.Event()
+                    error_holder = [None]
+
+                    def on_chunk(audio, chunk_sr):
+                        chunk_q.put((audio, chunk_sr))
+
+                    def on_complete(_path=None):
+                        done_evt.set()
+                        # Surface GPU/CPU provider in TTS status after first load
+                        if engine == "kokoro":
+                            _prov = getattr(self.tts, "provider", "")
+                            _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+                            self.root.after(0, lambda t=_tag: self.update_tts_status(
+                                f"✅  Engine ready{t}", COLORS["success"]
+                            ))
+
+                    def on_error(exc):
+                        error_holder[0] = exc
+                        done_evt.set()
+
+                    if engine == "kokoro":
+                        from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE
+                        vid = KOKORO_VOICES.get(voice_name, DEFAULT_VOICE) if voice_name else DEFAULT_VOICE
+
+                        def _kokoro_progress(msg, _frac):
+                            # Only surface loading messages, not per-sentence counters
+                            if "load" in msg.lower() or "ready" in msg.lower():
+                                self.root.after(0, lambda m=msg: status_var.set(m))
+
+                        self.tts.generate(
+                            text, voice_id=vid,
+                            on_chunk=on_chunk, on_complete=on_complete, on_error=on_error,
+                            on_progress=_kokoro_progress,
+                        )
+                    else:
+                        if not self.tts.is_loaded:
+                            raise RuntimeError(
+                                "TTS engine not loaded — load it in Speech Lab first."
+                            )
+                        voice_info = self.voices.get_voice(voice_name) if voice_name else None
+                        ref_wav    = voice_info["wav_path"] if voice_info else None
+                        ref_tokens = None
+                        if voice_info and voice_info.get("tokens_path") and \
+                                os.path.isfile(voice_info["tokens_path"]):
+                            ref_tokens = np.load(voice_info["tokens_path"])
+                        self.tts.generate(
+                            text,
+                            reference_wav=ref_wav,
+                            reference_tokens=ref_tokens,
+                            prompt_text=voice_info.get("prompt_text", "") if voice_info else "",
+                            on_chunk=on_chunk, on_complete=on_complete, on_error=on_error,
+                        )
+
+                    # Drain the queue until generation finishes
+                    while not done_evt.is_set() or not chunk_q.empty():
+                        if self._script_stop_flag:
+                            self.tts.cancel()
+                            return
+                        try:
+                            yield chunk_q.get(timeout=0.05)
+                        except _q.Empty:
+                            continue
+
+                    if error_holder[0]:
+                        raise error_holder[0]
+
+                # Target RMS for loudness normalisation (~-18 dBFS)
+                _TARGET_RMS = 0.08
+
+                def _rms_normalize(audio):
+                    """Scale audio so its RMS matches _TARGET_RMS. Skips silence."""
+                    rms = np.sqrt(np.mean(audio.astype(np.float32) ** 2))
+                    if rms < 1e-6:
+                        return audio
+                    return (audio.astype(np.float32) * (_TARGET_RMS / rms)).clip(-1.0, 1.0)
+
                 try:
                     for i, seg in enumerate(segments):
                         if self._script_stop_flag:
@@ -3577,47 +3676,21 @@ class KoKoFishUI:
                             f"[{i+1}/{n}] Generating [{c}]…"
                         ))
                         try:
-                            if engine == "kokoro":
-                                from kokoro_engine import KokoroEngine, VOICE_ID_FROM_NAME
-                                eng = KokoroEngine.get_instance()
-                                if not eng.is_loaded:
-                                    eng.load()
-                                vid = VOICE_ID_FROM_NAME.get(voice, voice) if voice else "af_heart"
-                                for audio, chunk_sr in eng.synthesize_stream(stext, voice_id=vid):
-                                    if self._script_stop_flag:
-                                        break
-                                    sr = chunk_sr
-                                    self._script_audio_chunks.append(audio)
-                                    if live:
-                                        import sounddevice as sd
-                                        vol = script_vol_var.get() / 100.0
-                                        sd.play(audio * vol, sr)
-                                        while sd.get_stream().active:
-                                            if self._script_stop_flag:
-                                                sd.stop()
-                                                break
-                                            threading.Event().wait(0.02)
-                            else:
-                                # Use the already-loaded shared TTS engine
-                                if not self.tts.is_loaded:
-                                    self.root.after(0, lambda: status_var.set(
-                                        "TTS engine not loaded — open Speech Lab and load it first."
-                                    ))
-                                    return
-                                for audio, chunk_sr in self.tts.synthesize(stext, voice_name=voice):
-                                    if self._script_stop_flag:
-                                        break
-                                    sr = chunk_sr
-                                    self._script_audio_chunks.append(audio)
-                                    if live:
-                                        import sounddevice as sd
-                                        vol = script_vol_var.get() / 100.0
-                                        sd.play(audio * vol, sr)
-                                        while sd.get_stream().active:
-                                            if self._script_stop_flag:
-                                                sd.stop()
-                                                break
-                                            threading.Event().wait(0.02)
+                            for audio, chunk_sr in _synth_blocking(stext, voice):
+                                if self._script_stop_flag:
+                                    break
+                                sr = chunk_sr
+                                audio = _rms_normalize(audio)
+                                self._script_audio_chunks.append(audio)
+                                if live:
+                                    import sounddevice as sd
+                                    vol = script_vol_var.get() / 100.0
+                                    sd.play(audio * vol, sr)
+                                    while sd.get_stream().active:
+                                        if self._script_stop_flag:
+                                            sd.stop()
+                                            break
+                                        threading.Event().wait(0.02)
                         except Exception as exc:
                             logger.warning("Script segment [%s] failed: %s", char, exc)
                             self.root.after(0, lambda e=str(exc): status_var.set(f"Segment error: {e}"))
@@ -3639,58 +3712,22 @@ class KoKoFishUI:
 
             threading.Thread(target=_worker, daemon=True).start()
 
-        # ── Toolbar buttons ────────────────────────────────────────────
+        # ── Toolbar: save buttons (top right) + vol/silent (top left) ─
         ctk.CTkButton(
-            toolbar, text="Load Script", width=90,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_primary"], command=_load_script_file, **btn_cfg,
-        ).pack(side="right", padx=3)
-
-        ctk.CTkButton(
-            toolbar, text="Export Script", width=95,
+            toolbar, text="Save Script", width=90,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], command=_export_script, **btn_cfg,
         ).pack(side="right", padx=3)
 
-        _btn_refs["export_audio"] = ctk.CTkButton(
-            toolbar, text="Export Audio", width=95,
+        _btn_refs["save_audio"] = ctk.CTkButton(
+            toolbar, text="Save Audio", width=85,
             fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], command=_export_audio,
             state="disabled", **btn_cfg,
         )
-        _btn_refs["export_audio"].pack(side="right", padx=3)
+        _btn_refs["save_audio"].pack(side="right", padx=3)
 
-        _btn_refs["play_pause"] = ctk.CTkButton(
-            toolbar, text="▶  Play", width=75,
-            fg_color=COLORS["bg_card"], hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_secondary"], command=_toggle_play_pause,
-            state="disabled", **btn_cfg,
-        )
-        _btn_refs["play_pause"].pack(side="right", padx=3)
-
-        _btn_refs["cancel"] = ctk.CTkButton(
-            toolbar, text="⏹  Cancel", width=80,
-            fg_color=COLORS["bg_card"], hover_color="#7a3030",
-            text_color=COLORS["text_secondary"], command=_cancel_generation,
-            state="disabled", **btn_cfg,
-        )
-        _btn_refs["cancel"].pack(side="right", padx=3)
-
-        _btn_refs["generate"] = ctk.CTkButton(
-            toolbar, text="▶  Generate", width=95,
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            command=_generate_script, **btn_cfg,
-        )
-        _btn_refs["generate"].pack(side="right", padx=3)
-
-        ctk.CTkSwitch(
-            toolbar, text="Silent", variable=silent_var,
-            onvalue=True, offvalue=False,
-            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
-            progress_color=COLORS["accent"],
-        ).pack(side="right", padx=(6, 2))
-
-        # Volume slider (Script Lab playback)
+        # Volume slider
         script_vol_var = tk.IntVar(value=self.settings.volume)
         ctk.CTkLabel(
             toolbar, text="Vol:",
@@ -3702,8 +3739,12 @@ class KoKoFishUI:
             progress_color=COLORS["accent"], button_color=COLORS["accent"],
         ).pack(side="left", padx=(0, 6))
 
-        # Initialise button states
-        _set_state("idle")
+        ctk.CTkSwitch(
+            toolbar, text="Silent", variable=silent_var,
+            onvalue=True, offvalue=False,
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent"],
+        ).pack(side="left", padx=(6, 2))
 
         # AI Tag section
         ai_bar = ctk.CTkFrame(right, fg_color=COLORS["bg_input"], corner_radius=8)
@@ -3797,9 +3838,9 @@ class KoKoFishUI:
             threading.Thread(target=_worker, daemon=True).start()
 
         ctk.CTkButton(
-            ai_bar, text="Enhance Script", width=110, height=28,
+            ai_bar, text="Enhance Script", width=140, height=28,
             fg_color=COLORS["bg_dark"], hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_primary"],
+            text_color=COLORS["text_primary"], font=(FONT_FAMILY, 12),
             command=_run_enhance,
         ).pack(side="left", padx=4, pady=6)
 
@@ -3840,12 +3881,15 @@ class KoKoFishUI:
                 return
             ext = os.path.splitext(path)[1].lower()
             if ext == ".txt":
-                # Load as plain text — may already be a tagged script
+                # Load as plain text — may already be a tagged script or raw prose
                 try:
                     with open(path, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     script_text.delete("1.0", "end")
                     script_text.insert("1.0", content)
+                    # Register as source so "Generate Script" can AI-tag it
+                    self._ai_source_path = path
+                    ai_file_var.set(os.path.basename(path))
                     status_var.set(f"Loaded: {os.path.basename(path)}")
                 except Exception as exc:
                     status_var.set(f"Could not read file: {exc}")
@@ -3877,6 +3921,38 @@ class KoKoFishUI:
             script_text.dnd_bind("<<Drop>>", _on_script_drop)
         except Exception as _dnd_err:
             logger.warning("Script Lab drag-and-drop unavailable: %s", _dnd_err)
+
+        # ── Bottom action bar (Generate / Cancel / Play) ───────────────
+        bottom_bar = ctk.CTkFrame(right, fg_color="transparent")
+        bottom_bar.pack(fill="x", padx=10, pady=(4, 2))
+
+        _btn_refs["play_pause"] = ctk.CTkButton(
+            bottom_bar, text="▶  Play", width=80,
+            fg_color=COLORS["bg_card"], hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_secondary"], command=_toggle_play_pause,
+            state="disabled", **btn_cfg,
+        )
+        _btn_refs["play_pause"].pack(side="right", padx=(3, 0))
+
+        # Cancel lives in the bottom bar but starts hidden; _set_state shows/hides it
+        _btn_refs["cancel"] = ctk.CTkButton(
+            bottom_bar, text="⏹  Cancel", width=80,
+            fg_color="#5a2020", hover_color="#7a3030",
+            text_color=COLORS["text_primary"], command=_cancel_generation,
+            **btn_cfg,
+        )
+        # (not packed yet — _set_state("idle") will leave it hidden)
+
+        _btn_refs["generate"] = ctk.CTkButton(
+            bottom_bar, text="▶  Generate", width=100,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=_generate_script, **btn_cfg,
+        )
+        _btn_refs["generate"].pack(side="right", padx=3)
+
+        # Initialise button states
+        _set_state("idle")
+
         ctk.CTkLabel(
             right, textvariable=status_var,
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
@@ -5972,10 +6048,11 @@ class KoKoFishUI:
                 popup.destroy()
                 warnings = getattr(self.tts, "load_warnings", [])
                 if warnings:
-                    # Show the first warning persistently; the rest are in the log
                     self.update_tts_status(f"⚠  {warnings[0]}", COLORS["warning"])
                 else:
-                    self.update_tts_status("✅  Engine ready", COLORS["success"])
+                    _prov = getattr(self.tts, "provider", "")
+                    _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+                    self.update_tts_status(f"✅  Engine ready{_tag}", COLORS["success"])
                 try:
                     self.tts_progress.set(0)
                     for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):

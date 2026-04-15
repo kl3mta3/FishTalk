@@ -8,31 +8,31 @@
     },
     {
       "name": "Narrator",
-      "voice": "🇺🇸 Adam (M)",
+      "voice": "🇬🇧 George (M)",
       "blend_voice": "",
       "blend_ratio": 0.0
     },
     {
       "name": "Orrath",
-      "voice": "🇺🇸 Eric (M)",
+      "voice": "🇺🇸 Sarah (F)",
       "blend_voice": "",
       "blend_ratio": 0.0
     },
     {
       "name": "Seel",
-      "voice": "🇺🇸 Sky (F)",
+      "voice": "🇺🇸 Jessica (F)",
       "blend_voice": "",
       "blend_ratio": 0.0
     },
     {
       "name": "Vehn",
-      "voice": "🇺🇸 River (F)",
+      "voice": "🇺🇸 Sky (F)",
       "blend_voice": "",
       "blend_ratio": 0.0
     }
   ],
   "narrator": {
-    "voice": "🇺🇸 Adam (M)",
+    "voice": "🇺🇸 Puck (M)",
     "blend_voice": "",
     "blend_ratio": 0.0
   }

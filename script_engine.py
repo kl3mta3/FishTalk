@@ -77,6 +77,11 @@ def parse_script(text: str) -> list:
     """
     Parse a [Character] tagged script into a list of dicts.
     Each dict: {character: str, text: str}
+
+    Accepts both:
+      [Name] dialogue text
+      [Name]: "dialogue text"   (colon + optional surrounding quotes)
+
     Lines without a tag are assigned to Narrator.
     """
     segments = []
@@ -84,12 +89,14 @@ def parse_script(text: str) -> list:
         line = line.strip()
         if not line:
             continue
-        m = re.match(r'^\[([^\]]+)\]\s*(.*)', line)
+        m = re.match(r'^\[([^\]]+)\]\s*:?\s*(.*)', line)
         if m:
-            segments.append({
-                "character": m.group(1).strip(),
-                "text":      m.group(2).strip(),
-            })
+            char = m.group(1).strip()
+            txt  = m.group(2).strip()
+            # Strip surrounding straight or curly quotes
+            if len(txt) >= 2 and txt[0] in ('"', '\u201c') and txt[-1] in ('"', '\u201d'):
+                txt = txt[1:-1]
+            segments.append({"character": char, "text": txt})
         else:
             segments.append({"character": "Narrator", "text": line})
     return segments
@@ -215,16 +222,57 @@ _ENHANCE_FISH_PROMPT = (
 )
 
 
+_SKIP_WORDS = frozenset({
+    "The", "She", "He", "They", "It", "This", "There", "But", "And", "So",
+    "Then", "When", "That", "What", "Which", "Who", "Where", "How", "Now",
+    "Just", "Still", "While", "After", "Before", "With", "Into", "Onto",
+    "Alright", "Already", "Always", "Also", "Again", "Once",
+})
+
+_ATTR_VERBS = re.compile(
+    r'\b([A-Z][a-z]{2,})\s+'
+    r'(?:said|says|replied|replies|asked|asks|whispered|whispers|'
+    r'shouted|shouts|called|calls|answered|answers|commented|comments|'
+    r'continued|continues|interjects|interjected|chirped|chirps|'
+    r'nodded|muttered|mutters|exclaimed|exclaims|added|adds|'
+    r'followed|follows|stuttered|stutters|mentioned|mentions|'
+    r'questioned|questions|stated|states|declared|declares)\b'
+)
+
+_POSSESSIVE = re.compile(r'^([A-Z][a-z]{2,})\'s\b', re.MULTILINE)
+
+
 def find_characters_in_script(script_text: str) -> list:
     """
-    Scan script_text for all [Name] tags and return a sorted unique list.
-    Always includes 'Narrator'. Names inside quotes are ignored by the parser
-    because they follow the bracket format, not the quote format.
+    Scan script_text for character names and return a sorted unique list.
+    Always includes 'Narrator'.
+
+    Three passes:
+      1. Explicit [Name] tags
+      2. Prose attribution — "Name said / replied / asked / …"
+      3. Possessives at line start — "Name's hands blurred…"
     """
     names = set()
     names.add("Narrator")
+
+    # Pass 1: tagged lines [Name] or [Name]:
     for m in re.finditer(r'^\[([^\]]+)\]', script_text, re.MULTILINE):
-        names.add(m.group(1).strip())
+        name = m.group(1).strip()
+        if name != "Narrator":
+            names.add(name)
+
+    # Pass 2: "Name said / replied / …" attribution
+    for m in _ATTR_VERBS.finditer(script_text):
+        candidate = m.group(1)
+        if candidate not in _SKIP_WORDS:
+            names.add(candidate)
+
+    # Pass 3: "Name's …" possessives at the start of a line
+    for m in _POSSESSIVE.finditer(script_text):
+        candidate = m.group(1)
+        if candidate not in _SKIP_WORDS:
+            names.add(candidate)
+
     return sorted(names)
 
 

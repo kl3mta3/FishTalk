@@ -431,7 +431,7 @@ class KoKoFishApp:
                         daemon=True,
                     )
                     _tts_pulse.start()
-                    self.tts = KokoroEngine()
+                    self.tts = KokoroEngine(use_cuda=self.settings.use_cuda)
                     _tts_stop.set()
                     _tts_pulse.join()
                     update_splash("Kokoro engine ready", 0.63)
