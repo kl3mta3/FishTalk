@@ -1119,7 +1119,7 @@ class KoKoFishUI:
             "MP4":  (".mp4",  [("MP4 audio",           "*.mp4")],  "aac",        "128k"),
             "FLAC": (".flac", [("FLAC lossless audio", "*.flac")], "flac",       None),
         }
-        _AUDIO_READ_EXT = "*.mp3 *.wav *.m4b *.m4a *.mp4 *.flac *.ogg *.aac"
+        _AUDIO_READ_EXT = "*.mp3 *.wav *.m4b *.m4a *.mp4 *.flac *.ogg *.aac *.weba *.webm *.opus *.wma *.amr"
         _AUDIO_NOTE = {
             "M4B":  "Chapters preserved if source has them",
             "MP4":  "Chapters preserved if source has them",
@@ -7255,19 +7255,21 @@ class KoKoFishUI:
         from tag_suggester import get_prompt, set_prompt, save_prompts, reset_prompts
 
         _PROMPT_TABS = [
-            ("Kokoro — Assisted Flow",       "kokoro_af"),
-            ("Fish 1.4 — Assisted Flow",     "fish14_af"),
-            ("S1 Mini — Assisted Flow",      "s1mini_af"),
-            ("S1 Full — Assisted Flow",      "s1_af"),
-            ("Translation",                  "translate"),
-            ("Tone Rewrite",                 "tone"),
-            ("Tag Generation",               "tag_gen"),
-            ("Grammar Check",                "grammar"),
+            ("Script → Kokoro",   "script_kokoro"),
+            ("Script → Fish",     "script_fish"),
+            ("Kokoro Flow",       "kokoro_af"),
+            ("Fish 1.4 Flow",     "fish14_af"),
+            ("S1 Mini Flow",      "s1mini_af"),
+            ("S1 Full Flow",      "s1_af"),
+            ("Translation",       "translate"),
+            ("Tone Rewrite",      "tone"),
+            ("Tag Gen",           "tag_gen"),
+            ("Grammar",           "grammar"),
         ]
 
         win = ctk.CTkToplevel(self.root)
         win.title("Edit AI Prompts")
-        win.geometry("860x600")
+        win.geometry("980x620")
         win.resizable(True, True)
         win.transient(self.root)
         win.configure(fg_color=COLORS["bg_dark"])

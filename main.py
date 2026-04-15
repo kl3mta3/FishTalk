@@ -120,7 +120,7 @@ from settings import (
     validate_fish_speech_path,
     get_device,
 )
-from utils import setup_ffmpeg, is_kokoro_ready, setup_kokoro, is_fish_speech_ready, FISH_ENGINE_CONFIG
+from utils import setup_ffmpeg, setup_python_deps, is_kokoro_ready, setup_kokoro, is_fish_speech_ready, FISH_ENGINE_CONFIG
 from tts_engine import TTSEngine
 from kokoro_engine import KokoroEngine
 from stt_engine import STTEngine
@@ -355,6 +355,11 @@ class KoKoFishApp:
                 update_splash("Checking FFmpeg…", 0.03)
                 setup_ffmpeg(on_progress=update_splash)
                 update_splash("FFmpeg ready", 0.07)
+
+                # ── Python runtime deps (noisereduce, scipy, …) ──────────────
+                update_splash("Checking dependencies…", 0.08)
+                setup_python_deps(on_progress=update_splash)
+                update_splash("Dependencies ready", 0.09)
 
                 _engine = getattr(self.settings, 'engine', 'kokoro')
 

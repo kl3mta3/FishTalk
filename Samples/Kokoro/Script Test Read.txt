@@ -1,0 +1,63 @@
+[Maren]: “According to the USB it is a textbook interception. We might want to look into logging it and adding the data to HTML for later simulation creation.”
+
+[Vehn]: “We have Orrath to thank for that. Spectacular job as always.”
+
+[Orrath]: “It’s nothing special, Vehn. Anyone could do it.”
+
+[Vehn]: “Nonsense! Who is it that has the Universal record for Probe stopping distance?”
+
+[Orrath]: “I do.”
+
+[Vehn]: “You do. No one can manage the Non-Symmetric Curvature for a Dual-Axis Relativistic Rotor as perfectly as you. Anything past a Rank-3 Tensor and I might as well throw a probe at the target.”
+
+[Seel]: “Something’s happening... I think I see it.”
+
+[Narrator]: There on the monitor the probe, slightly less blue with each image, faded into view. Just a few million miles from its goal the probe was setting up for its mission. It navigated to a precise point in space and stopped. Then the probe started to move again, it made a circle about 1000 miles in diameter. Then another. Then again, faster and faster, creating a halo of charged particles that illuminated into bright neon auroras in all directions, leaving a dark void in the center.
+
+[Maren]: “And there it is.”
+
+[Narrator]: Maren was always fascinated by the beauty of the universe. How something like empty space can seem so boring and dull, but give it a bit of energy and in return it rewards you with a scene so breathtaking, life itself surely evolved just to be speechless in its sight.
+
+Alright it should be made clear life did not evolve for this reason. Across the universe it has happened for many reasons. But primarily the council has concluded the original reason life evolved is that in an environment rich in Nitrogen, breathing helium makes your voice very high pitched. It is universally hilarious. Let it never be said the universe doesn’t have a sense of humor.
+
+[Seel]: “Is that real?”
+
+[Vehn]: “Quite real. You’ve been doing your reading as intended?”
+
+[Seel]: “Mmm-hmm everyday.”
+
+[Vehn]: “Really, Everyday?”
+
+[Seel]: “Well I, uh, mean most days.”
+
+[Vehn]: “That’s just fine young Seel. Let’s see where you’re at. So what can you tell me about what the probe is doing now?”
+
+[Seel]: “It has moved itself to one of the planets POE’s.”
+
+[Vehn]: “And what is a POE?”
+
+[Seel]: “Points of Equilibrium, it’s like a 'parking spot' in space where the gravity of two large bodies– like planets and stars – balances out, allowing a small object, like the probe, to stay in place.”
+
+[Vehn]: “Very good. But why is that important?”
+
+[Seel]: “The POE1 and POE2 are the ideal locations for Geomagnetic Towing.”
+
+[Vehn]: “Geomagnetic.”
+
+[Seel]: “Geomagnetic Towing. So we can move the planet. But it’s so big, can we really move it?”
+
+[Vehn]: “Oh yes we can definitely move it. Once you understand how the planet sits there in the first place, tricking it into moving is much easier than you might think. With enough energy and a bit of imagination, nearly anything is possible. Do you remember how?”
+
+[Seel]: “It’s about... mass, right? But not just adding it. You told me once that the planet isn't just sitting in a hole; it’s more like it’s balanced on a sheet that we’re about to tug on.”
+
+[Vehn]: “Exactly. Orrath, show them the Displacement Overlay.”
+
+[Narrator]: Orrath’s hands blurred over the console. On the monitor, a grid appeared over the rotating planetoid. The grid wasn't flat; it sagged deeply where the planet sat, like a heavy marble on a trampoline.
+
+[Vehn]: “You see, Seel, we don’t actually ‘pull’ the planet with a rope. That’s far too much work. Instead, the probe uses an Asymmetric-Axial Rotation to create a localized pocket of Relativistic Mass. It’s tricking the universe into thinking there’s something incredibly heavy right in front of the planet that wasn't there a second ago.”
+
+[Seel]: “So the planet... falls?”
+
+[Maren]: “Precisely! The probe creates a false gravity well, a 'moving pit', just ahead of the planet’s orbit. The planet tries to fall into that pit, but because the probe keeps moving the pit forward, the planet just keeps falling and falling... right in the direction we want it to go.”
+
+[Vehn]: “And that is why Orrath is a legend. To move a whole world without shaking the soup bowls on the dinner tables down there, you have to keep that Non-Symmetric Curvature perfect. If the 'pit' isn't shaped just right, you don't get a smooth tow, you get a planetary earthquake.”

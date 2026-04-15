@@ -1014,14 +1014,26 @@ _PROMPTS_FILE = os.path.join(APP_DIR, "prompts.json")
 
 # Keys map to the prompt constants above.  Values can be replaced via
 # the prompt editor window without touching this source file.
+def _load_script_prompts() -> tuple:
+    """Import Script Lab prompts lazily to avoid circular imports."""
+    try:
+        from script_engine import _KOKORO_PROMPT, _FISH_PROMPT
+        return _KOKORO_PROMPT, _FISH_PROMPT
+    except Exception:
+        return "", ""
+
+_script_kokoro_prompt, _script_fish_prompt = _load_script_prompts()
+
 _PROMPTS: dict = {
-    "tag_gen":    _SYSTEM_PROMPT,
-    "grammar":    _GRAMMAR_SYSTEM_PROMPT,
-    "fish14_af":  _ENHANCE_SYSTEM_PROMPT_FISH14,
-    "s1mini_af":  _ENHANCE_SYSTEM_PROMPT_S1MINI,
-    "s1_af":      _ENHANCE_SYSTEM_PROMPT_S1,
-    "kokoro_af":  _ENHANCE_SYSTEM_PROMPT_KOKORO,
-    "tone":       _TONE_SYSTEM_PROMPT_TEMPLATE,
+    "tag_gen":        _SYSTEM_PROMPT,
+    "grammar":        _GRAMMAR_SYSTEM_PROMPT,
+    "fish14_af":      _ENHANCE_SYSTEM_PROMPT_FISH14,
+    "s1mini_af":      _ENHANCE_SYSTEM_PROMPT_S1MINI,
+    "s1_af":          _ENHANCE_SYSTEM_PROMPT_S1,
+    "kokoro_af":      _ENHANCE_SYSTEM_PROMPT_KOKORO,
+    "tone":           _TONE_SYSTEM_PROMPT_TEMPLATE,
+    "script_kokoro":  _script_kokoro_prompt,
+    "script_fish":    _script_fish_prompt,
     "translate":  (
         "You are a professional translator. "
         "If the text is already written in {target_language}, return it unchanged. "

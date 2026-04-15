@@ -155,41 +155,76 @@ def read_source_file(path: str) -> str:
 # AI script tagging prompts
 # ---------------------------------------------------------------------------
 
-_KOKORO_PROMPT = (
-    "You are a script formatter converting prose fiction into a voice-acted script.\n"
-    "Rules:\n"
-    "1. Find all dialogue (text in quotation marks) and identify the speaker from surrounding context (e.g. 'said John', 'she replied').\n"
-    "2. Format each dialogue line as: [SpeakerName] dialogue text\n"
-    "3. Remove all attribution text (e.g. 'John said', 'she replied', 'he asked').\n"
-    "4. Format all narration as: [Narrator] narration text\n"
-    "5. Do NOT add any emotion or style tags — plain text only.\n"
-    "6. If the speaker is unclear, use [Narrator].\n"
-    "7. IMPORTANT: If a character's name appears inside quotation marks (e.g. 'She called out \"John!\"'), "
-    "that is dialogue referencing the name — do NOT treat it as that character speaking.\n"
-    "8. Match the emotional tone of each line to the flow of the conversation. "
-    "Consider what was just said and how the speaker would naturally respond.\n"
-    "9. Known characters: {characters}\n"
-    "Output ONLY the formatted script. No explanations, no commentary."
-)
+_KOKORO_PROMPT = """\
+You are converting prose fiction into a voice-acted script for Kokoro TTS (plain text only).
 
-_FISH_PROMPT = (
-    "You are a script formatter converting prose fiction into a voice-acted script.\n"
-    "Rules:\n"
-    "1. Find all dialogue (text in quotation marks) and identify the speaker from surrounding context (e.g. 'said John', 'she replied').\n"
-    "2. Format each dialogue line as: [SpeakerName] (emotion) dialogue text\n"
-    "3. Remove all attribution text (e.g. 'John said excitedly', 'she whispered', 'he shouted').\n"
-    "4. Format all narration as: [Narrator] narration text\n"
-    "5. Add ONE emotion tag before the dialogue based on how it was spoken:\n"
-    "   (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused)\n"
-    "   Use [whisper] for whispered speech. Use (laugh) for laughing.\n"
-    "6. IMPORTANT: If a character's name appears inside quotation marks (e.g. 'She called out \"John!\"'), "
-    "that is dialogue referencing the name — do NOT treat it as that character speaking.\n"
-    "7. Match emotion tags to the flow of conversation — consider what was said in the previous line "
-    "and choose an emotion that makes sense as a natural response or continuation.\n"
-    "8. If the speaker is unclear, use [Narrator].\n"
-    "9. Known characters: {characters}\n"
-    "Output ONLY the formatted script. No explanations, no commentary."
-)
+OUTPUT FORMAT — every line must be exactly:
+[CharacterName] the words they say or the narration
+
+RULES:
+1. SPOKEN DIALOGUE (text inside quotation marks):
+   - Identify the speaker from nearby attribution: "Maren said", "she replied", "Vehn asked"
+   - Pronouns (she/he/they) refer to the most recently named character of that gender in the text
+   - Write: [SpeakerName] the exact words spoken — no quotation marks, no attribution phrase
+   - REMOVE attribution entirely: "said", "replied", "asked", "whispered", "answered", "commented", "continued", "interjected", "added", "chirped", "nodded" etc.
+
+2. NARRATION (prose that is not inside quotation marks):
+   - Write: [Narrator] the narration exactly as written
+
+3. EVERY line must start with a [Name] tag — no exceptions, no blank lines without tags
+4. Use the EXACT words from the source — never summarize, paraphrase, or invent content
+5. A name inside quotation marks ("She called to John") is a reference, NOT a speaker — ignore it for attribution
+6. When the speaker is genuinely unclear → [Narrator]
+7. Do NOT add emotion tags, brackets, ellipses, or any formatting not in the source
+8. Known characters: {characters}
+
+EXAMPLE:
+Input:
+  "Ready when you are," Maren said quietly. Vehn nodded toward the console.
+  "Understood," he replied.
+Output:
+  [Maren] Ready when you are.
+  [Narrator] Vehn nodded toward the console.
+  [Vehn] Understood.
+
+Output ONLY the formatted script lines. No explanations, no commentary, no placeholders.\
+"""
+
+_FISH_PROMPT = """\
+You are converting prose fiction into a voice-acted script for Fish-Speech TTS.
+
+OUTPUT FORMAT — every line must be exactly:
+[CharacterName] (emotion) the words they say or the narration
+
+RULES:
+1. SPOKEN DIALOGUE (text inside quotation marks):
+   - Identify the speaker from nearby attribution: "Maren said", "she replied", "Vehn asked"
+   - Pronouns (she/he/they) refer to the most recently named character of that gender in the text
+   - Write: [SpeakerName] (emotion) the exact words spoken — no quotation marks, no attribution phrase
+   - REMOVE attribution entirely: "said", "replied", "asked", "whispered", "answered", "commented", "continued", "interjected", "added" etc.
+   - Choose ONE emotion tag: (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused) (laugh) [whisper]
+
+2. NARRATION (prose that is not inside quotation marks):
+   - Write: [Narrator] the narration exactly as written — no emotion tag on narration
+
+3. EVERY line must start with a [Name] tag — no exceptions
+4. Use the EXACT words from the source — never summarize, paraphrase, or invent content
+5. A name inside quotation marks ("She called to John") is a reference, NOT a speaker — ignore it for attribution
+6. When the speaker is genuinely unclear → [Narrator]
+7. Match emotions to conversational flow — consider what was just said before choosing the emotion
+8. Known characters: {characters}
+
+EXAMPLE:
+Input:
+  "Ready when you are," Maren said quietly. Vehn nodded toward the console.
+  "Understood," he replied.
+Output:
+  [Maren] (gentle) Ready when you are.
+  [Narrator] Vehn nodded toward the console.
+  [Vehn] (confident) Understood.
+
+Output ONLY the formatted script lines. No explanations, no commentary, no placeholders.\
+"""
 
 _ENHANCE_KOKORO_PROMPT = (
     "You are a script editor improving a voice-acted script for natural flow and emotional continuity.\n"
@@ -311,9 +346,14 @@ def tag_script_with_ai(
         )
 
     char_list = ", ".join(characters) if characters else "unknown"
-    system_prompt = (
-        _KOKORO_PROMPT if engine == "kokoro" else _FISH_PROMPT
-    ).format(characters=char_list)
+    # Use editable prompt from tag_suggester if available, else fall back to built-in
+    try:
+        from tag_suggester import get_prompt as _get_prompt
+        _key = "script_kokoro" if engine == "kokoro" else "script_fish"
+        _base = _get_prompt(_key) or (_KOKORO_PROMPT if engine == "kokoro" else _FISH_PROMPT)
+    except Exception:
+        _base = _KOKORO_PROMPT if engine == "kokoro" else _FISH_PROMPT
+    system_prompt = _base.format(characters=char_list)
 
     if not _active_is_ollama():
         with _llm_lock:
@@ -323,15 +363,31 @@ def tag_script_with_ai(
     total = max(len(paragraphs), 1)
     result_parts = []
 
+    def _split_para(para: str, limit: int = 1500) -> list:
+        """Split a long paragraph at sentence boundaries, not arbitrary char positions."""
+        if len(para) <= limit:
+            return [para]
+        # Split on sentence-ending punctuation followed by whitespace
+        sentences = re.split(r'(?<=[.!?"])\s+', para)
+        chunks, current = [], ""
+        for sent in sentences:
+            if current and len(current) + len(sent) + 1 > limit:
+                chunks.append(current.strip())
+                current = sent
+            else:
+                current = (current + " " + sent).strip() if current else sent
+        if current:
+            chunks.append(current.strip())
+        return chunks or [para]
+
     for i, para in enumerate(paragraphs):
         if on_progress:
             on_progress(f"Tagging paragraph {i + 1} of {total}...", i / total)
 
-        # Break very long paragraphs into ~600-char chunks
-        chunks = [para[j:j + 600] for j in range(0, len(para), 600)]
+        chunks = _split_para(para)
         for chunk in chunks:
             try:
-                max_tok = min(900, int(len(chunk) / 4 * 3) + 200)
+                max_tok = min(1200, int(len(chunk) / 4 * 3) + 300)
                 tagged = _infer_chunk(
                     system_prompt, chunk,
                     max_tokens=max_tok,

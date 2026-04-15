@@ -149,6 +149,56 @@ def is_ffmpeg_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Python dependency auto-install
+# ---------------------------------------------------------------------------
+
+# Packages that ship separately from the main requirements but are needed at
+# runtime.  Each entry: (import_name, pip_name, version_spec)
+_RUNTIME_DEPS = [
+    ("noisereduce", "noisereduce", ""),   # voice clone denoising
+    ("scipy",       "scipy",       ""),   # high-pass filter for reference audio
+]
+
+
+def setup_python_deps(on_progress=None) -> None:
+    """
+    Ensure optional runtime packages are installed.
+    Runs pip install only when the package cannot be imported.
+    Non-fatal — logs warnings on failure.
+    """
+    import importlib
+    import subprocess
+
+    venv_python = sys.executable
+
+    for import_name, pip_name, version_spec in _RUNTIME_DEPS:
+        try:
+            importlib.import_module(import_name)
+            continue  # already installed
+        except ImportError:
+            pass
+
+        pkg = pip_name + version_spec
+        logger.info("Auto-installing missing dependency: %s", pkg)
+        if on_progress:
+            on_progress(f"Installing {pip_name}…", 0.0)
+        try:
+            result = subprocess.run(
+                [venv_python, "-m", "pip", "install", pkg, "--quiet"],
+                capture_output=True, text=True, timeout=180,
+            )
+            if result.returncode == 0:
+                logger.info("Installed %s successfully.", pkg)
+            else:
+                logger.warning(
+                    "Failed to install %s: %s",
+                    pkg, result.stderr[-300:] if result.stderr else "unknown error",
+                )
+        except Exception as exc:
+            logger.warning("Auto-install of %s failed (non-fatal): %s", pkg, exc)
+
+
+# ---------------------------------------------------------------------------
 # Fish-Speech auto-setup
 # ---------------------------------------------------------------------------
 
@@ -615,8 +665,10 @@ def preprocess_reference_audio(wav_path: str, denoise: bool = True) -> str:
     Steps applied:
       1. Convert to mono 16-bit PCM
       2. Trim leading/trailing silence (threshold -40 dBFS, 150 ms padding)
-      3. Normalize peak volume to -1 dBFS
-      4. Optional light denoising via noisereduce (stationary noise only)
+      3. High-pass filter at 80 Hz (removes rumble, HVAC, mic handling noise)
+      4. Denoise via noisereduce — stationary noise/hiss reduction (if installed)
+      5. RMS normalize to -18 dBFS (consistent perceived loudness)
+      6. Peak normalize to -1 dBFS (safety ceiling)
 
     Returns the path to a processed temp WAV (caller should delete when done).
     If pydub is unavailable the original path is returned unchanged.
@@ -647,10 +699,22 @@ def preprocess_reference_audio(wav_path: str, denoise: bool = True) -> str:
             pad = 150  # ms of silence to keep at each end
             audio = audio[max(0, start_trim - pad): duration - max(0, end_trim - pad)]
 
-        # Normalize volume
-        audio = normalize(audio)
+        # High-pass filter — remove low-frequency rumble (HVAC, mic handling) below 80 Hz
+        try:
+            import numpy as np
+            from scipy.signal import butter, sosfilt
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+            sr = audio.frame_rate
+            sos = butter(4, 80.0 / (sr / 2), btype="high", output="sos")
+            filtered = sosfilt(sos, samples)
+            audio = AudioSegment(
+                np.clip(filtered, -32768, 32767).astype(np.int16).tobytes(),
+                frame_rate=sr, sample_width=2, channels=1,
+            )
+        except Exception as exc:
+            logger.warning("High-pass filter failed (non-fatal): %s", exc)
 
-        # Optional denoise
+        # Denoise — remove stationary background noise/hiss
         if denoise:
             try:
                 import numpy as np
@@ -667,9 +731,31 @@ def preprocess_reference_audio(wav_path: str, denoise: bool = True) -> str:
                     channels=1,
                 )
             except ImportError:
-                pass  # noisereduce not installed; skip
+                logger.warning("noisereduce not installed — skipping denoising. "
+                               "Run: pip install noisereduce")
             except Exception as exc:
                 logger.warning("Denoising failed (non-fatal): %s", exc)
+
+        # RMS normalize to -18 dBFS for consistent perceived loudness
+        try:
+            import numpy as np
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+            rms = np.sqrt(np.mean(samples ** 2))
+            if rms > 0:
+                target_rms = 32768 * 10 ** (-18 / 20)  # -18 dBFS in int16 scale
+                gain = target_rms / rms
+                # Cap gain to avoid over-amplifying very quiet recordings
+                gain = min(gain, 4.0)
+                samples = np.clip(samples * gain, -32768, 32767).astype(np.int16)
+                audio = AudioSegment(
+                    samples.tobytes(),
+                    frame_rate=audio.frame_rate, sample_width=2, channels=1,
+                )
+        except Exception as exc:
+            logger.warning("RMS normalization failed (non-fatal): %s", exc)
+
+        # Peak normalize as final safety pass
+        audio = normalize(audio)
 
         # Write to temp file
         tmp_path = tempfile.mktemp(suffix="_ref_processed.wav")
