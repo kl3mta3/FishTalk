@@ -4519,7 +4519,13 @@ class KoKoFishUI:
         win.geometry(f"+{rx}+{ry}")
 
         self._settings_window = win
-        win.protocol("WM_DELETE_WINDOW", lambda: setattr(self, "_settings_window", None) or win.destroy())
+        def _on_settings_close():
+            self._settings_window = None
+            # Clear label refs so _update_ram doesn't touch destroyed widgets
+            for attr in ("ram_label", "vram_label", "cpu_label"):
+                setattr(self, attr, None)
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW", _on_settings_close)
 
         self._build_settings_tab(win)
 
@@ -7567,6 +7573,20 @@ class KoKoFishUI:
     def _on_cuda_toggle(self):
         """Handle CUDA toggle — download CUDA PyTorch on demand."""
         wants_cuda = self.cuda_var.get()
+        _is_kokoro = getattr(self.settings, "engine", "kokoro") == "kokoro"
+
+        def _swap_ort(use_cuda: bool):
+            """Switch onnxruntime ↔ onnxruntime-gpu for the Kokoro engine."""
+            if not _is_kokoro:
+                return
+            from kokoro_engine import switch_onnxruntime
+            def _ort_progress(msg):
+                self.root.after(0, lambda m=msg: self.cuda_status_label.configure(
+                    text=f"⏳  {m}", text_color=COLORS["warning"]
+                ))
+            def _ort_done(ok, msg):
+                logger.info("onnxruntime swap: %s", msg)
+            switch_onnxruntime(use_cuda, on_progress=_ort_progress, on_complete=_ort_done)
 
         if wants_cuda and not is_cuda_torch_installed():
             # User is enabling CUDA but doesn't have CUDA PyTorch yet
@@ -7616,6 +7636,8 @@ class KoKoFishUI:
                         )
                         self.settings.use_cuda = True
                         self.settings.save()
+                        # Also swap onnxruntime → onnxruntime-gpu for Kokoro
+                        _swap_ort(True)
                         messagebox.showinfo(
                             "CUDA Ready",
                             f"{message}\n\nRestart KoKoFish to use GPU acceleration."
@@ -7642,6 +7664,8 @@ class KoKoFishUI:
 
             self.settings.use_cuda = False
             self.settings.save()
+            # Swap onnxruntime-gpu → onnxruntime (CPU) for Kokoro
+            _swap_ort(False)
 
             if revert:
                 self.cuda_switch.configure(state="disabled")
@@ -7670,6 +7694,8 @@ class KoKoFishUI:
             # Simple toggle (CUDA already installed, or already CPU)
             self.settings.use_cuda = wants_cuda
             self.settings.save()
+            # Swap onnxruntime for Kokoro to match new CUDA state
+            _swap_ort(wants_cuda)
 
     def _on_memsave_toggle(self):
         self.settings.memory_saver = self.memsave_var.get()
@@ -8131,9 +8157,25 @@ class KoKoFishUI:
         """Start periodic RAM usage updates."""
         self._update_ram()
 
+    @staticmethod
+    def _lbl_set(label, text, color=None):
+        """Configure a label only if its widget still exists."""
+        try:
+            if label.winfo_exists():
+                if color:
+                    label.configure(text=text, text_color=color)
+                else:
+                    label.configure(text=text)
+        except Exception:
+            pass
+
     def _update_ram(self):
         """Update RAM and VRAM readout labels."""
-        if hasattr(self, "ram_label"):
+        ram_lbl  = getattr(self, "ram_label",  None)
+        vram_lbl = getattr(self, "vram_label", None)
+        cpu_lbl  = getattr(self, "cpu_label",  None)
+
+        if ram_lbl:
             try:
                 ram = get_ram_usage()
                 text = (
@@ -8141,11 +8183,11 @@ class KoKoFishUI:
                     f"System: {ram['system_used_gb']:.1f} / "
                     f"{ram['system_total_gb']:.1f} GB ({ram['system_percent']:.0f}%)"
                 )
-                self.ram_label.configure(text=text)
+                self._lbl_set(ram_lbl, text)
             except Exception:
-                self.ram_label.configure(text="Unable to read")
+                self._lbl_set(ram_lbl, "Unable to read")
 
-        if hasattr(self, "vram_label"):
+        if vram_lbl:
             try:
                 vram = get_vram_usage()
                 if vram:
@@ -8153,31 +8195,27 @@ class KoKoFishUI:
                         f"System: {vram['used_gb']:.1f} / "
                         f"{vram['total_gb']:.1f} GB ({vram['percent']:.0f}%)"
                     )
-                    self.vram_label.configure(text=text)
+                    self._lbl_set(vram_lbl, text)
                 else:
-                    self.vram_label.configure(text="N/A (No CUDA GPU)")
+                    self._lbl_set(vram_lbl, "N/A (No CUDA GPU)")
             except Exception:
-                self.vram_label.configure(text="Unable to read")
+                self._lbl_set(vram_lbl, "Unable to read")
 
-        try:
-            cpu = get_cpu_usage()
-            _thread_info = (
-                f"  |  Threads: {cpu['threads_torch']}/{cpu['cores']}"
-                if cpu.get("threads_torch") else f"  |  Cores: {cpu['cores']}"
-            )
-            _color = (
-                COLORS["danger"] if cpu["percent"] > 90
-                else COLORS["warning"] if cpu["percent"] > 70
-                else COLORS["text_secondary"]
-            )
-            if hasattr(self, "cpu_label"):
-                self.cpu_label.configure(
-                    text=f"{cpu['percent']:.0f}%{_thread_info}",
-                    text_color=_color,
+        if cpu_lbl:
+            try:
+                cpu = get_cpu_usage()
+                _thread_info = (
+                    f"  |  Threads: {cpu['threads_torch']}/{cpu['cores']}"
+                    if cpu.get("threads_torch") else f"  |  Cores: {cpu['cores']}"
                 )
-        except Exception:
-            if hasattr(self, "cpu_label"):
-                self.cpu_label.configure(text="Unable to read")
+                _color = (
+                    COLORS["danger"] if cpu["percent"] > 90
+                    else COLORS["warning"] if cpu["percent"] > 70
+                    else COLORS["text_secondary"]
+                )
+                self._lbl_set(cpu_lbl, f"{cpu['percent']:.0f}%{_thread_info}", _color)
+            except Exception:
+                self._lbl_set(cpu_lbl, "Unable to read")
 
         # Schedule next update
         self.root.after(5000, self._update_ram)
