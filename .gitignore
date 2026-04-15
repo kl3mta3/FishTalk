@@ -54,6 +54,9 @@ packages/
 # Wiki
 wiki/
 
+# Claude
+.claude/
+
 # =============================================================================
 # Voice profiles — user-generated, keep folder structure via .gitkeep
 # =============================================================================
