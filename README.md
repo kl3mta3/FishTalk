@@ -191,6 +191,9 @@ On first launch the app will automatically download anything missing:
 - Fish-Speech 1.4 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
 - Fish-Speech 1.5 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
 
+**AI Writing Tools (llama-cpp-python):**
+The AI features (grammar check, tone rewriting, translation, tag generation, Prompt Lab) require `llama-cpp-python`. The app will prompt you to install it from Settings when you first use an AI feature. Pre-built CPU wheels install automatically with no compiler needed. If you want CUDA-accelerated LLM inference, enable CUDA in Settings first — the correct build will be selected automatically.
+
 ---
 
 ## Switching Engines

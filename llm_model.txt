@@ -1,1 +1,0 @@
-Qwen 2.5 0.5B (default, ~400 MB)
