@@ -387,28 +387,49 @@ class KokoroEngine:
             logger.info("Loading Kokoro ONNX model from %s", KOKORO_ONNX_PATH)
             from kokoro_onnx import Kokoro
 
-            # Try CUDA if enabled in settings, fall back to CPU
+            # Try CUDA if enabled in settings, fall back to CPU.
+            # We verify onnxruntime-gpu is actually installed before attempting
+            # CUDA — the CPU package also lists CUDAExecutionProvider in
+            # get_available_providers() but the DLLs aren't present, causing a
+            # silent fall-through that still ends up on CPU.
             _cuda_loaded = False
             if self._use_cuda:
+                # Check whether onnxruntime-gpu (not the CPU-only package) is installed
+                _ort_is_gpu = False
                 try:
-                    import onnxruntime as _ort
-                    _available = _ort.get_available_providers()
-                    if "CUDAExecutionProvider" in _available:
-                        self._kokoro = Kokoro(
-                            KOKORO_ONNX_PATH, KOKORO_VOICES_PATH,
-                            execution_providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-                        )
-                        _cuda_loaded = True
-                        self.provider = "cuda"
-                        logger.info("Kokoro loaded with CUDAExecutionProvider.")
-                    else:
-                        logger.warning(
-                            "CUDAExecutionProvider not available in onnxruntime "
-                            "(install onnxruntime-gpu for GPU acceleration). "
-                            "Falling back to CPU."
-                        )
-                except Exception as _e:
-                    logger.warning("Kokoro CUDA load failed (%s), falling back to CPU.", _e)
+                    from importlib.metadata import version as _pkg_ver, PackageNotFoundError as _PNF
+                    _pkg_ver("onnxruntime-gpu")
+                    _ort_is_gpu = True
+                except Exception:
+                    pass
+
+                if not _ort_is_gpu:
+                    logger.warning(
+                        "onnxruntime-gpu is not installed — Kokoro will run on CPU. "
+                        "Toggle CUDA off and on in Settings to trigger the swap."
+                    )
+                else:
+                    try:
+                        import onnxruntime as _ort
+                        _available = _ort.get_available_providers()
+                        logger.info("onnxruntime providers: %s", _available)
+                        if "CUDAExecutionProvider" in _available:
+                            # kokoro-onnx reads ONNX_PROVIDER env var to select provider
+                            os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
+                            try:
+                                self._kokoro = Kokoro(KOKORO_ONNX_PATH, KOKORO_VOICES_PATH)
+                                _cuda_loaded = True
+                                self.provider = "cuda"
+                                logger.info("Kokoro loaded with CUDAExecutionProvider.")
+                            finally:
+                                os.environ.pop("ONNX_PROVIDER", None)
+                        else:
+                            logger.warning(
+                                "CUDAExecutionProvider not in provider list even though "
+                                "onnxruntime-gpu is installed. Falling back to CPU."
+                            )
+                    except Exception as _e:
+                        logger.warning("Kokoro CUDA load failed (%s), falling back to CPU.", _e, exc_info=True)
             else:
                 logger.info("Kokoro: use_cuda=False, loading on CPU.")
 

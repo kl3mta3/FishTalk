@@ -4521,8 +4521,9 @@ class KoKoFishUI:
         self._settings_window = win
         def _on_settings_close():
             self._settings_window = None
-            # Clear label refs so _update_ram doesn't touch destroyed widgets
-            for attr in ("ram_label", "vram_label", "cpu_label"):
+            # Clear label refs so update loops don't touch destroyed widgets
+            for attr in ("ram_label", "vram_label", "cpu_label",
+                         "tts_status_label", "stt_status_label"):
                 setattr(self, attr, None)
             win.destroy()
         win.protocol("WM_DELETE_WINDOW", _on_settings_close)
@@ -5003,11 +5004,21 @@ class KoKoFishUI:
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
+        # Reflect actual engine state rather than always showing "Not loaded"
+        if self.tts and self.tts.is_loaded:
+            _prov = getattr(self.tts, "provider", "")
+            _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+            _tts_text  = f"✅  Loaded{_tag}"
+            _tts_color = COLORS["success"]
+        else:
+            _tts_text  = "⏳  Not loaded"
+            _tts_color = COLORS["text_muted"]
+
         self.tts_status_label = ctk.CTkLabel(
             tts_status_row,
-            text="⏳  Not loaded",
+            text=_tts_text,
             font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_muted"],
+            text_color=_tts_color,
         )
         self.tts_status_label.pack(side="right", padx=15, pady=12)
 
@@ -5020,11 +5031,13 @@ class KoKoFishUI:
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
+        _stt_text  = "✅  Loaded" if (self.stt and self.stt.is_loaded) else "⏳  Not loaded"
+        _stt_color = COLORS["success"] if (self.stt and self.stt.is_loaded) else COLORS["text_muted"]
         self.stt_status_label = ctk.CTkLabel(
             stt_status_row,
-            text="⏳  Not loaded",
+            text=_stt_text,
             font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_muted"],
+            text_color=_stt_color,
         )
         self.stt_status_label.pack(side="right", padx=15, pady=12)
 
@@ -5077,6 +5090,7 @@ class KoKoFishUI:
 
         def _on_llm_change(key):
             _set_llm_key(key)
+            self.settings.llm_model = key  # keep Settings in sync so save() doesn't overwrite
             _is_ollama_key = key in _LLM_MODELS and _LLM_MODELS[key].get("backend") == "ollama"
             # Update the llama-cpp status row to reflect the backend in use
             if _is_ollama_key:
@@ -8240,16 +8254,12 @@ class KoKoFishUI:
 
     def update_tts_status(self, text: str, color: str = None):
         """Update TTS engine status label in Settings tab (only if open)."""
-        if hasattr(self, "tts_status_label"):
-            self.tts_status_label.configure(
-                text=text,
-                text_color=color or COLORS["text_secondary"],
-            )
+        lbl = getattr(self, "tts_status_label", None)
+        if lbl:
+            self._lbl_set(lbl, text, color or COLORS["text_secondary"])
 
     def update_stt_status(self, text: str, color: str = None):
         """Update STT engine status label in Settings tab (only if open)."""
-        if hasattr(self, "stt_status_label"):
-            self.stt_status_label.configure(
-                text=text,
-                text_color=color or COLORS["text_secondary"],
-            )
+        lbl = getattr(self, "stt_status_label", None)
+        if lbl:
+            self._lbl_set(lbl, text, color or COLORS["text_secondary"])

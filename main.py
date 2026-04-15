@@ -236,10 +236,48 @@ class KoKoFishApp:
 
     def __init__(self):
         self.settings = Settings.load()
+        # Sync llm_model into the Settings object so Settings.save() never
+        # overwrites the user's choice back to "" when other settings change.
+        try:
+            from tag_suggester import get_active_llm_key
+            self.settings.llm_model = get_active_llm_key()
+        except Exception:
+            pass
         self.tts: TTSEngine = None
         self.stt: STTEngine = None
         self.voice_manager: VoiceManager = None
         self.ui: KoKoFishUI = None
+
+        # Ensure onnxruntime package matches CUDA setting on startup.
+        # Runs in background so it never delays launch.
+        if getattr(self.settings, "engine", "kokoro") == "kokoro":
+            threading.Thread(target=self._ensure_ort_package, daemon=True,
+                             name="OrtStartupCheck").start()
+
+    def _ensure_ort_package(self):
+        """Background: swap onnxruntime ↔ onnxruntime-gpu if it doesn't match use_cuda."""
+        use_cuda = getattr(self.settings, "use_cuda", False)
+        try:
+            from importlib.metadata import version as _pkg_ver, PackageNotFoundError as _PNF
+            gpu_installed = True
+            try:
+                _pkg_ver("onnxruntime-gpu")
+            except _PNF:
+                gpu_installed = False
+
+            if use_cuda and not gpu_installed:
+                logger.info("CUDA enabled but onnxruntime-gpu not installed — swapping now.")
+                from kokoro_engine import switch_onnxruntime
+                switch_onnxruntime(True)
+            elif not use_cuda and gpu_installed:
+                logger.info("CUDA disabled but onnxruntime-gpu is installed — swapping to CPU.")
+                from kokoro_engine import switch_onnxruntime
+                switch_onnxruntime(False)
+            else:
+                logger.info("onnxruntime package matches CUDA setting (gpu=%s, use_cuda=%s).",
+                            gpu_installed, use_cuda)
+        except Exception as exc:
+            logger.warning("OrtStartupCheck failed: %s", exc)
 
     def run(self):
         """Start the application."""
