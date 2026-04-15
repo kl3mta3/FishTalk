@@ -1,0 +1,83 @@
+MIT License
+
+Copyright (c) 2026 Kenneth Lasyone (kl3mta3)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+THIRD-PARTY COMPONENT LICENSES
+-------------------------------------------------------------------------------
+
+This software downloads and integrates third-party AI models and libraries,
+each governed by their own license terms. By using KoKoFish and enabling the
+respective engines or models, you agree to comply with those terms.
+
+Fish-Speech (fishaudio/fish-speech)
+  License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0)
+  Source:  https://github.com/fishaudio/fish-speech
+  NOTE:    Fish-Speech is licensed for NON-COMMERCIAL USE ONLY. You may not use
+           KoKoFish with the Fish-Speech engine for commercial purposes without
+           obtaining a separate commercial license from fishaudio.
+
+Kokoro TTS (hexgrad/Kokoro-82M)
+  License: Apache License 2.0
+  Source:  https://github.com/hexgrad/kokoro
+
+kokoro-onnx (thewh1teagle/kokoro-onnx)
+  License: MIT
+  Source:  https://github.com/thewh1teagle/kokoro-onnx
+
+Whisper (openai/whisper)
+  License: MIT
+  Source:  https://github.com/openai/whisper
+
+Qwen 2.5 (Alibaba-NLP/Qwen2.5)
+  License: Apache License 2.0
+  Source:  https://huggingface.co/Qwen
+
+Gemma 3 (Google)
+  License: Gemma Terms of Use
+  Source:  https://ai.google.dev/gemma/terms
+  NOTE:    Use of Gemma models is subject to Google's Gemma Terms of Use.
+           Review these terms before commercial or large-scale deployment.
+
+llama-cpp-python
+  License: MIT
+  Source:  https://github.com/abetlen/llama-cpp-python
+
+faster-whisper
+  License: MIT
+  Source:  https://github.com/SYSTRAN/faster-whisper
+
+pdfplumber
+  License: MIT
+  Source:  https://github.com/jsvine/pdfplumber
+
+ebooklib
+  License: GNU Affero General Public License v3 (AGPL-3.0)
+  Source:  https://github.com/aerkalov/ebooklib
+
+-------------------------------------------------------------------------------
+DISCLAIMER
+-------------------------------------------------------------------------------
+
+KoKoFish does not bundle Fish-Speech, Whisper, Kokoro, or LLM model weights.
+These are downloaded separately at the user's direction. The user is solely
+responsible for ensuring their use of any downloaded model complies with that
+model's license terms.

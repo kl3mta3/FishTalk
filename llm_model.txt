@@ -1,1 +1,1 @@
-Gemma 3 4B Abliterated (~2.5 GB)
+Qwen 2.5 0.5B (default, ~400 MB)

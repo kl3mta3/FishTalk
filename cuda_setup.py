@@ -102,23 +102,47 @@ def install_cuda_pytorch(
 
     def _worker():
         pip_exe = get_venv_pip()
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        packages_dir = os.path.join(app_dir, "packages")
+
+        # Check if a local CUDA torch wheel exists (no +cpu in filename)
+        local_cuda_wheels = []
+        if os.path.isdir(packages_dir):
+            local_cuda_wheels = [
+                f for f in os.listdir(packages_dir)
+                if f.startswith("torch-") and f.endswith(".whl") and "+cpu" not in f
+            ]
 
         try:
-            if on_progress:
-                on_progress("Downloading CUDA PyTorch (~2.5 GB)...\nThis may take several minutes.")
-            logger.info("Installing CUDA PyTorch (cu124)...")
-
-            result = subprocess.run(
-                [
-                    pip_exe, "install",
-                    "torch==2.6.0+cu124",
-                    "torchaudio==2.6.0+cu124",
-                    "--index-url", "https://download.pytorch.org/whl/cu124",
-                    "--upgrade",
-                ],
-                capture_output=True, text=True, timeout=1800,
-                creationflags=CREATE_NO_WINDOW
-            )
+            if local_cuda_wheels:
+                if on_progress:
+                    on_progress("Installing CUDA PyTorch from local packages...")
+                logger.info("Installing CUDA PyTorch from local packages: %s", local_cuda_wheels)
+                result = subprocess.run(
+                    [
+                        pip_exe, "install",
+                        "torch", "torchaudio",
+                        "--find-links", packages_dir,
+                        "--no-index",
+                        "--upgrade",
+                    ],
+                    capture_output=True, text=True, timeout=300,
+                    creationflags=CREATE_NO_WINDOW
+                )
+            else:
+                if on_progress:
+                    on_progress("Downloading CUDA PyTorch (~2.5 GB)...\nThis may take several minutes.")
+                logger.info("Installing CUDA PyTorch (cu124) from pytorch.org...")
+                result = subprocess.run(
+                    [
+                        pip_exe, "install",
+                        "torch", "torchaudio",
+                        "--index-url", "https://download.pytorch.org/whl/cu124",
+                        "--upgrade",
+                    ],
+                    capture_output=True, text=True, timeout=1800,
+                    creationflags=CREATE_NO_WINDOW
+                )
 
             if result.returncode != 0:
                 error_msg = result.stderr[-500:] if result.stderr else "Unknown error"
