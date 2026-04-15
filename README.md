@@ -73,24 +73,64 @@ KoKoFish is a desktop Audiobook Studio built for Windows. Convert text, ebooks, 
 
 ## Screenshots
 
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab.png" alt="Speech Lab" width="300"/>
-</p>
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Voice_Lab.png" alt="Speech Lab" width="300"/>
-</p>
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Text_Lab.png" alt="Speech Lab" width="300"/>
-</p>
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/File_Lab.png" alt="Speech Lab" width="300"/>
-</p>
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Listen_Lab.png" alt="Speech Lab" width="300"/>
-</p>
-<p align="center">
-  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Prompt_Lab.png" alt="Speech Lab" width="300"/>
-</p>
+<table>
+  <tr>
+    <td align="center"><b>Speech Lab — Kokoro</b></td>
+    <td align="center"><b>Speech Lab — Fish-Speech</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab-Kokoro.png" alt="Speech Lab Kokoro" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab-Fish-Speech.png" alt="Speech Lab Fish-Speech" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Text Editor</b></td>
+    <td align="center"><b>Voice Lab</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Text_Editor.png" alt="Text Editor" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Voice_Lab.png" alt="Voice Lab" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Text Lab (STT)</b></td>
+    <td align="center"><b>File Lab</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Text_Lab.png" alt="Text Lab" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/File_Lab.png" alt="File Lab" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Listen Lab</b></td>
+    <td align="center"><b>Prompt Lab</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Listen_Lab.png" alt="Listen Lab" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Prompt_Lab.png" alt="Prompt Lab" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>TTS Enhancement</b></td>
+    <td align="center"><b>Tone Rewrite</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Enhanced_TTS1.png" alt="TTS Enhancement" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Retone1.png" alt="Tone Rewrite" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Translation</b></td>
+    <td align="center"><b>AI Tag Generation</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Translate1.png" alt="Translation" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Generate_Style_Tags.png" alt="Generate Style Tags" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>TTS Settings</b></td>
+    <td align="center"><b>LLM Model Options</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/TTS_Options.png" alt="TTS Options" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/LLM_Options.png" alt="LLM Options" width="400"/></td>
+  </tr>
+</table>
 
 ---
 

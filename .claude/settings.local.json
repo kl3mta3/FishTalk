@@ -23,7 +23,9 @@
       "Bash(pyinstaller --onefile --windowed --icon=icon.ico --name=KoKoFish launcher.py)",
       "Bash(copy /Y dist\\\\KoKoFish.exe KoKoFish.exe)",
       "Bash(pip download:*)",
-      "Bash(pyinstaller --onefile --windowed --name KoKoFish --icon icon.ico launcher.py)"
+      "Bash(pyinstaller --onefile --windowed --name KoKoFish --icon icon.ico launcher.py)",
+      "Bash(curl -L -o \"C:\\\\Users\\\\Kenny\\\\source\\\\repos\\\\KoKoFish\\\\bin\\\\python-3.12.9-amd64.exe\" \"https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe\" --progress-bar)",
+      "Bash(gh release:*)"
     ]
   }
 }

@@ -154,14 +154,20 @@ class InstallerGUI(tk.Tk):
                 nonlocal system_python
                 
                 if wants_install:
-                    self.update_status("Downloading Python 3.12... (This may take a minute)")
-                    installer_url = "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe"
-                    installer_path = os.path.join(tempfile.gettempdir(), "python-3.12.9-amd64-kokofish.exe")
-                    
-                    try:
-                        urllib.request.urlretrieve(installer_url, installer_path)
-                    except Exception as e:
-                        raise Exception(f"Failed to download Python installer: {e}")
+                    installer_filename = "python-3.12.9-amd64.exe"
+                    installer_path = os.path.join(APP_DIR, "bin", installer_filename)
+
+                    if not os.path.exists(installer_path):
+                        # Fall back to temp folder download
+                        installer_path = os.path.join(tempfile.gettempdir(), "python-3.12.9-amd64-kokofish.exe")
+                        self.update_status("Downloading Python 3.12... (This may take a minute)")
+                        installer_url = "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe"
+                        try:
+                            urllib.request.urlretrieve(installer_url, installer_path)
+                        except Exception as e:
+                            raise Exception(f"Failed to download Python installer: {e}")
+                    else:
+                        self.update_status("Installing Python 3.12...")
                         
                     self.update_status("Installing Python in the background...")
                     flags = ["/passive", "InstallAllUsers=0", "PrependPath=1", "Include_test=0", "Include_doc=0", "Include_launcher=0"]
