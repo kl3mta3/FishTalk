@@ -274,21 +274,34 @@ class KoKoFishUI:
         self._rebuild_all_tabs()
 
     def _rebuild_all_tabs(self):
-        """Destroy and rebuild all tab content so t() calls re-evaluate in the new language."""
-        # Destroy all children inside each tab frame
-        for tab_frame in (
-            self.tab_tts,
-            self.tab_voices,
-            self.tab_stt,
-            self.tab_convert,
-            self.tab_listen,
-            self.tab_script,
-            self.tab_chat,
-        ):
-            for child in tab_frame.winfo_children():
-                child.destroy()
+        """Destroy and recreate the entire tabview so tab names translate too."""
+        # Destroy the whole tabview (takes all tab content with it)
+        self.tabview.destroy()
 
-        # Rebuild each tab
+        # Recreate tabview
+        self.tabview = ctk.CTkTabview(
+            self.root,
+            fg_color=COLORS["bg_card"],
+            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            corner_radius=12,
+        )
+        self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        # Recreate tabs with translated names
+        self.tab_tts      = self.tabview.add(t("MAIN_TAB_SPEECH_LAB"))
+        self.tab_voices   = self.tabview.add(t("MAIN_TAB_VOICE_LAB"))
+        self.tab_stt      = self.tabview.add(t("MAIN_TAB_TEXT_LAB"))
+        self.tab_convert  = self.tabview.add(t("MAIN_TAB_FILE_LAB"))
+        self.tab_listen   = self.tabview.add(t("MAIN_TAB_LISTEN_LAB"))
+        self.tab_script   = self.tabview.add(t("MAIN_TAB_SCRIPT_LAB"))
+        self.tab_chat     = self.tabview.add(t("MAIN_TAB_PROMPT_LAB"))
+
+        # Rebuild each tab's content
         self._build_tts_tab()
         self._build_voice_lab_tab()
         self._build_stt_tab()
@@ -296,6 +309,9 @@ class KoKoFishUI:
         self._build_listen_lab_tab()
         self._build_script_lab_tab()
         self._build_prompt_lab_tab()
+
+        # Re-bind tab change for memory saver
+        self.tabview.configure(command=self._on_tab_changed)
 
     # ==================================================================
     # Tooltip helper
@@ -538,14 +554,14 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             playlist_header,
-            text="📋  Playlist",
+            text=t("SPEECH_LAB_HEADER_PLAYLIST"),
             font=(FONT_FAMILY, 14, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(side="left")
-        
+
         ctk.CTkLabel(
         playlist_header,
-        text="(Double-Click File Name to open in Editor.)",
+        text=t("SPEECH_LAB_HINT_DBLCLICK"),
         font=(FONT_FAMILY, 10),
         text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(5, 0))
@@ -556,7 +572,7 @@ class KoKoFishUI:
             lang_frame.pack(side="left", padx=(16, 0))
             ctk.CTkLabel(
                 lang_frame,
-                text="Language:",
+                text=t("SPEECH_LAB_LANG_FILTER_LABEL"),
                 font=(FONT_FAMILY, 11),
                 text_color=COLORS["text_muted"],
             ).pack(side="left", padx=(0, 4))
@@ -663,7 +679,7 @@ class KoKoFishUI:
 
         # TTS Selected + its Pause / Stop (pause/stop hidden until converting)
         _btn_convert = ctk.CTkButton(
-            sel_bar, text="🔊 Convert Selected",
+            sel_bar, text=t("SPEECH_LAB_BTN_CONVERT_SELECTED"),
             fg_color=COLORS["success"], hover_color="#05b890",
             command=self._tts_selected, width=140, **_big,
         )
@@ -689,7 +705,7 @@ class KoKoFishUI:
 
         # Play Selected + its Pause / Stop (pause/stop hidden until playing)
         _btn_play_sel = ctk.CTkButton(
-            sel_bar, text="▶ Play Selected",
+            sel_bar, text=t("SPEECH_LAB_BTN_PLAY_SELECTED"),
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._play_selected, width=140, **_big,
         )
@@ -720,7 +736,7 @@ class KoKoFishUI:
 
         # Save Selected
         self.btn_save_mp3 = ctk.CTkButton(
-            sel_bar, text="💾 Save Selected",
+            sel_bar, text=t("SPEECH_LAB_BTN_SAVE_SELECTED"),
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._tts_save_mp3, width=140, **_big,
         )
@@ -729,7 +745,7 @@ class KoKoFishUI:
 
         # Export Audiobook
         _btn_ab = ctk.CTkButton(
-            sel_bar, text="📚 Audiobook",
+            sel_bar, text=t("SPEECH_LAB_BTN_AUDIOBOOK"),
             fg_color="#2d6a4f", hover_color="#1b4332",
             command=self._tts_export_audiobook, width=120, **_big,
         )
@@ -738,7 +754,7 @@ class KoKoFishUI:
 
         # Selection helpers
         _btn = ctk.CTkButton(
-            sel_bar, text="☑ All",
+            sel_bar, text=t("SPEECH_LAB_BTN_SELECT_ALL"),
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=self._select_all, width=60, **_util,
@@ -747,7 +763,7 @@ class KoKoFishUI:
         self._make_tooltip(_btn, "Select all items")
 
         _btn = ctk.CTkButton(
-            sel_bar, text="☐ None",
+            sel_bar, text=t("SPEECH_LAB_BTN_SELECT_NONE"),
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=self._deselect_all, width=60, **_util,
@@ -757,7 +773,7 @@ class KoKoFishUI:
 
         # Clear Selected — far right
         _btn = ctk.CTkButton(
-            sel_bar, text="🗑 Clear Selected",
+            sel_bar, text=t("SPEECH_LAB_BTN_CLEAR_SELECTED"),
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=self._tts_clear_playlist, width=120, **_util,
@@ -891,7 +907,7 @@ class KoKoFishUI:
         _tr_frame.pack(side="left", padx=(20, 0))
         ctk.CTkLabel(
             _tr_frame,
-            text="Translate to",
+            text=t("TEXT_LAB_TRANSLATE_TO_LABEL"),
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w")
@@ -1147,13 +1163,13 @@ class KoKoFishUI:
         _fmt_row.pack(fill="x", padx=14, pady=(0, 8))
 
         _txt_from_var = ctk.StringVar(value="TXT")
-        ctk.CTkLabel(_fmt_row, text="From:", font=(FONT_FAMILY, 11),
+        ctk.CTkLabel(_fmt_row, text=t("TEXT_LAB_FROM_LABEL"), font=(FONT_FAMILY, 11),
                      text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 4))
         ctk.CTkLabel(_fmt_row, textvariable=_txt_from_var,
                      font=(FONT_FAMILY, 11, "bold"),
                      text_color=COLORS["accent_light"]).pack(side="left", padx=(0, 12))
 
-        ctk.CTkLabel(_fmt_row, text="To:", font=(FONT_FAMILY, 11),
+        ctk.CTkLabel(_fmt_row, text=t("TEXT_LAB_TO_LABEL"), font=(FONT_FAMILY, 11),
                      text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 4))
         _txt_to_var = ctk.StringVar(value="PDF")
         _txt_to_menu = ctk.CTkOptionMenu(
@@ -1168,7 +1184,7 @@ class KoKoFishUI:
         _txt_to_menu.pack(side="left", padx=(0, 12))
 
         _txt_btn = ctk.CTkButton(
-            _fmt_row, text="Convert",
+            _fmt_row, text=t("TEXT_LAB_BTN_CONVERT_FMT"),
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             font=(FONT_FAMILY, 11, "bold"), height=28, width=90,
             command=_txt_convert,
@@ -1250,7 +1266,7 @@ class KoKoFishUI:
             if not out:
                 return
 
-            _aud_status.configure(text="Converting…", text_color=COLORS["warning"])
+            _aud_status.configure(text=t("FILE_LAB_STATUS_CONVERTING_AUDIO"), text_color=COLORS["warning"])
             _aud_progress.set(0)
             _aud_progress.pack(anchor="w", fill="x", padx=14, pady=(0, 2))
             _aud_btn.configure(state="disabled")
@@ -1317,7 +1333,7 @@ class KoKoFishUI:
         _aud_drop.pack_propagate(False)
         self._conv_audio_src_lbl = ctk.CTkLabel(
             _aud_drop,
-            text="🎵  Drop an MP3, WAV, M4B, FLAC or MP4 here — or click to browse",
+            text=t("FILE_LAB_AUDIO_DROP_HINT"),
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
         )
         self._conv_audio_src_lbl.pack(expand=True)
@@ -1334,7 +1350,7 @@ class KoKoFishUI:
         _aud_row = ctk.CTkFrame(aud_card, fg_color="transparent")
         _aud_row.pack(fill="x", padx=14, pady=(0, 4))
 
-        ctk.CTkLabel(_aud_row, text="Convert to:", font=(FONT_FAMILY, 11),
+        ctk.CTkLabel(_aud_row, text=t("FILE_LAB_CONVERT_TO_LABEL"), font=(FONT_FAMILY, 11),
                      text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
         _aud_to_var = ctk.StringVar(value="MP3")
         _aud_to_menu = ctk.CTkOptionMenu(
@@ -1350,7 +1366,7 @@ class KoKoFishUI:
         _aud_to_menu.pack(side="left", padx=(0, 12))
 
         _aud_btn = ctk.CTkButton(
-            _aud_row, text="Convert",
+            _aud_row, text=t("FILE_LAB_BTN_CONVERT_AUDIO"),
             fg_color="#2d6a4f", hover_color="#1b4332",
             font=(FONT_FAMILY, 11, "bold"), height=28, width=90,
             command=_aud_convert,
@@ -1381,8 +1397,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             comb_card,
-            text="Drop or add audio files, drag to reorder, then export as M4B/MP4/WAV/MP3.\n"
-                 "Chapter marks are embedded when exporting to M4B or MP4.",
+            text=t("FILE_LAB_COMBINER_HINT"),
             font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
             justify="left",
         ).pack(anchor="w", padx=14, pady=(0, 6))
@@ -1404,7 +1419,7 @@ class KoKoFishUI:
         # Not packed yet — shown during combine
 
         _comb_status = ctk.CTkLabel(
-            comb_card, text="No files added yet.",
+            comb_card, text=t("FILE_LAB_COMBINER_EMPTY"),
             font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
         )
         _comb_status.pack(anchor="w", padx=14, pady=(0, 4))
@@ -1420,11 +1435,11 @@ class KoKoFishUI:
             if not _comb_files:
                 ctk.CTkLabel(
                     _list_frame,
-                    text="No files — click Add Files below",
+                    text=t("FILE_LAB_COMBINER_EMPTY_BTN"),
                     font=(FONT_FAMILY, 10),
                     text_color=COLORS["text_muted"],
                 ).pack(pady=10)
-                _comb_status.configure(text="No files added yet.")
+                _comb_status.configure(text=t("FILE_LAB_COMBINER_EMPTY"))
                 return
 
             total_s = 0.0
@@ -1538,7 +1553,7 @@ class KoKoFishUI:
             )
             if not out:
                 return
-            _comb_status.configure(text="Combining…", text_color=COLORS["warning"])
+            _comb_status.configure(text=t("FILE_LAB_STATUS_COMBINING"), text_color=COLORS["warning"])
             _comb_progress.set(0)
             _comb_progress.pack(anchor="w", fill="x", padx=14, pady=(0, 2))
 
@@ -1614,7 +1629,7 @@ class KoKoFishUI:
                                "-map_metadata", "1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out]
                     self.root.after(0, lambda: (
                         _comb_progress.set(0.9),
-                        _comb_status.configure(text="Encoding final file…", text_color=COLORS["warning"]),
+                        _comb_status.configure(text=t("FILE_LAB_STATUS_ENCODING"), text_color=COLORS["warning"]),
                     ))
                     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_NO_WIN)
 
@@ -1660,14 +1675,14 @@ class KoKoFishUI:
         _comb_btn_row = ctk.CTkFrame(comb_card, fg_color="transparent")
         _comb_btn_row.pack(fill="x", padx=14, pady=(0, 12))
         _bs = {"font": (FONT_FAMILY, 11, "bold"), "corner_radius": 6, "height": 28}
-        ctk.CTkButton(_comb_btn_row, text="➕ Add Files",
+        ctk.CTkButton(_comb_btn_row, text=t("FILE_LAB_BTN_ADD_FILES"),
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                       command=_comb_add, width=110, **_bs).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(_comb_btn_row, text="🗑 Clear",
+        ctk.CTkButton(_comb_btn_row, text=t("FILE_LAB_BTN_CLEAR_ALL"),
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       border_color=COLORS["border"], border_width=1,
                       command=_comb_clear, width=80, **_bs).pack(side="left", padx=(0, 12))
-        ctk.CTkButton(_comb_btn_row, text="📚 Export Audiobook",
+        ctk.CTkButton(_comb_btn_row, text=t("FILE_LAB_BTN_EXPORT_AUDIOBOOK"),
                       fg_color="#2d6a4f", hover_color="#1b4332",
                       command=_comb_export, width=160, **_bs).pack(side="left")
 
@@ -1683,7 +1698,7 @@ class KoKoFishUI:
         # ── Header ───────────────────────────────────────────────────────────
         hdr = ctk.CTkFrame(tab, fg_color="transparent")
         hdr.pack(fill="x", padx=10, pady=(10, 4))
-        ctk.CTkLabel(hdr, text="🎧  Listen Lab",
+        ctk.CTkLabel(hdr, text=t("LISTEN_LAB_HEADER"),
                      font=(FONT_FAMILY, 18, "bold"),
                      text_color=COLORS["text_primary"]).pack(side="left")
 
@@ -1704,7 +1719,7 @@ class KoKoFishUI:
         tr_top.pack(fill="x", padx=12, pady=(8, 4))
 
         tr_switch = ctk.CTkSwitch(
-            tr_top, text="Translate & Re-read",
+            tr_top, text=t("LISTEN_LAB_BTN_TRANSLATE_REREAD"),
             variable=self._listen_translate_var,
             font=(FONT_FAMILY, 12, "bold"),
             text_color=COLORS["text_primary"],
@@ -1728,7 +1743,7 @@ class KoKoFishUI:
         # Language
         lang_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
         lang_col.pack(side="left", padx=(0, 16))
-        ctk.CTkLabel(lang_col, text="Target Language", **_lf).pack(anchor="w")
+        ctk.CTkLabel(lang_col, text=t("LISTEN_LAB_TARGET_LANG_LABEL"), **_lf).pack(anchor="w")
         lang_menu = ctk.CTkOptionMenu(
             lang_col, variable=self._listen_translate_lang_var,
             values=TRANSLATE_LANGUAGES, width=180, **_ef)
@@ -1738,7 +1753,7 @@ class KoKoFishUI:
         # Voice
         voice_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
         voice_col.pack(side="left", padx=(0, 16))
-        ctk.CTkLabel(voice_col, text="TTS Voice", **_lf).pack(anchor="w")
+        ctk.CTkLabel(voice_col, text=t("LISTEN_LAB_TTS_VOICE_LABEL"), **_lf).pack(anchor="w")
         from voice_manager import VoiceManager
         _voice_names = self.voices.get_voice_names() if hasattr(self, "voices") else ["Default (Random)"]
         self._listen_voice_menu = ctk.CTkOptionMenu(
@@ -1754,14 +1769,14 @@ class KoKoFishUI:
         _hint_row = ctk.CTkFrame(tab, fg_color="transparent")
         _hint_row.pack(fill="x", padx=10, pady=(2, 0))
         ctk.CTkButton(
-            _hint_row, text="＋  Add Files", width=110, height=28,
+            _hint_row, text=t("LISTEN_LAB_BTN_ADD_FILES"), width=110, height=28,
             corner_radius=7, font=(FONT_FAMILY, 11),
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             command=self._listen_browse_add,
         ).pack(side="left", padx=(0, 10))
         ctk.CTkLabel(
             _hint_row,
-            text="Drag & drop audio files here  (MP3, WAV, M4A, M4B, FLAC, OGG…)",
+            text=t("LISTEN_LAB_DROP_HINT"),
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         ).pack(side="left")
@@ -1778,7 +1793,7 @@ class KoKoFishUI:
 
         _bs = {"height": 34, "corner_radius": 7, "font": (FONT_FAMILY, 12)}
         self._btn_listen_play = ctk.CTkButton(
-            bot, text="▶  Play Selected", width=140,
+            bot, text=t("LISTEN_LAB_BTN_PLAY_SELECTED"), width=140,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._listen_play_selected, **_bs)
         self._btn_listen_play.pack(side="left", padx=(10, 4), pady=9)
@@ -1796,19 +1811,19 @@ class KoKoFishUI:
         _next_btn.pack(side="left", padx=(0, 8), pady=9)
         self._make_tooltip(_next_btn, "Next track")
 
-        _rm_sel = ctk.CTkButton(bot, text="🗑  Remove Selected", width=150,
+        _rm_sel = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_REMOVE_SELECTED"), width=150,
                       fg_color=COLORS["danger"], hover_color="#d43d62",
                       command=self._listen_remove_selected, **_bs)
         _rm_sel.pack(side="left", padx=(0, 12), pady=9)
         self._make_tooltip(_rm_sel, "Remove selected items from the list")
 
-        _all_btn = ctk.CTkButton(bot, text="☑  All", width=70,
+        _all_btn = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_SELECT_ALL"), width=70,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=lambda: self._listen_select_all(True), **_bs)
         _all_btn.pack(side="left", padx=(0, 4), pady=9)
         self._make_tooltip(_all_btn, "Select all items")
 
-        _none_btn = ctk.CTkButton(bot, text="☐  None", width=70,
+        _none_btn = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_SELECT_NONE"), width=70,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=lambda: self._listen_select_all(False), **_bs)
         _none_btn.pack(side="left", padx=(0, 4), pady=9)
@@ -1822,7 +1837,7 @@ class KoKoFishUI:
         # Speed control
         _spd_frame = ctk.CTkFrame(bot, fg_color="transparent")
         _spd_frame.pack(side="right", padx=(0, 4))
-        ctk.CTkLabel(_spd_frame, text="Speed",
+        ctk.CTkLabel(_spd_frame, text=t("LISTEN_LAB_SPEED_LABEL"),
                      font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
                      width=38).pack(side="left")
         self._listen_speed_label = ctk.CTkLabel(_spd_frame, text="1.0×",
@@ -1843,7 +1858,7 @@ class KoKoFishUI:
         # Volume control
         _vol_frame = ctk.CTkFrame(bot, fg_color="transparent")
         _vol_frame.pack(side="right", padx=(0, 8))
-        ctk.CTkLabel(_vol_frame, text="Vol",
+        ctk.CTkLabel(_vol_frame, text=t("LISTEN_LAB_VOL_LABEL"),
                      font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
                      width=24).pack(side="left")
         self._listen_vol_label = ctk.CTkLabel(_vol_frame, text="100%",
@@ -1966,7 +1981,7 @@ class KoKoFishUI:
             self._rebuild_listen_ui()
             self._listen_status.configure(text=f"Added {added} file(s)")
         elif paths:
-            self._listen_status.configure(text="No supported audio files found in drop")
+            self._listen_status.configure(text=t("LISTEN_LAB_MSG_NO_AUDIO_DROP"))
 
     def _rebuild_listen_ui(self):
         for w in self._listen_scroll.winfo_children():
@@ -1975,7 +1990,7 @@ class KoKoFishUI:
 
         if not self._listen_items:
             ctk.CTkLabel(self._listen_scroll,
-                         text="No files loaded — drag audio files here",
+                         text=t("LISTEN_LAB_MSG_NO_FILES"),
                          font=(FONT_FAMILY, 12),
                          text_color=COLORS["text_muted"]).pack(pady=30)
             return
@@ -2666,7 +2681,7 @@ class KoKoFishUI:
         """Play/pipeline all selected items in sequence."""
         selected = [i for i, it in enumerate(self._listen_items) if it["selected"]]
         if not selected:
-            self._listen_status.configure(text="No items selected")
+            self._listen_status.configure(text=t("LISTEN_LAB_MSG_NO_SELECTION"))
             return
         translate_on = getattr(self, "_listen_translate_var", None) and self._listen_translate_var.get()
         if translate_on:
@@ -3061,8 +3076,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             tab,
-            text="Upload a WAV reference clip to create a new voice. "
-                 "Zero-shot cloning — no fine-tuning required.",
+            text=t("VOICE_LAB_UPLOAD_HINT"),
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
             justify="left",
@@ -3176,14 +3190,14 @@ class KoKoFishUI:
         card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
         card.pack(fill="x", padx=15, pady=(0, 8))
 
-        ctk.CTkLabel(card, text="🎙  Record Voice Sample",
+        ctk.CTkLabel(card, text=t("VOICE_LAB_RECORD_HEADER"),
                      font=(FONT_FAMILY, 13, "bold"),
                      text_color=COLORS["text_secondary"]).pack(anchor="w", padx=14, pady=(10, 6))
 
         # ── Mic selector ─────────────────────────────────────────────────
         mic_row = ctk.CTkFrame(card, fg_color="transparent")
         mic_row.pack(fill="x", padx=14, pady=(0, 6))
-        ctk.CTkLabel(mic_row, text="Microphone:",
+        ctk.CTkLabel(mic_row, text=t("VOICE_LAB_MICROPHONE_LABEL"),
                      font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
                      width=90, anchor="w").pack(side="left")
 
@@ -3206,16 +3220,16 @@ class KoKoFishUI:
         btn_row.pack(fill="x", padx=14, pady=(0, 4))
         _bs = {"height": 34, "corner_radius": 7, "font": (FONT_FAMILY, 12, "bold")}
 
-        btn_record = ctk.CTkButton(btn_row, text="●  Record", width=120,
+        btn_record = ctk.CTkButton(btn_row, text=t("VOICE_LAB_BTN_RECORD"), width=120,
                                    fg_color=COLORS["danger"], hover_color="#d43d62",
                                    command=lambda: _start_recording(), **_bs)
         btn_record.pack(side="left", padx=(0, 8))
-        btn_stop = ctk.CTkButton(btn_row, text="■  Stop", width=100,
+        btn_stop = ctk.CTkButton(btn_row, text=t("VOICE_LAB_BTN_STOP_RECORD"), width=100,
                                  fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                  border_color=COLORS["border"], border_width=1,
                                  state="disabled", command=lambda: _stop_recording(), **_bs)
         btn_stop.pack(side="left")
-        rec_status = ctk.CTkLabel(btn_row, text="No recording",
+        rec_status = ctk.CTkLabel(btn_row, text=t("VOICE_LAB_STATUS_NO_RECORDING"),
                                   font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"])
         rec_status.pack(side="left", padx=(14, 0))
 
@@ -3276,7 +3290,7 @@ class KoKoFishUI:
         res_row = ctk.CTkFrame(card, fg_color="transparent")
         res_row.pack(fill="x", padx=14, pady=(4, 12))
 
-        rec_file_lbl = ctk.CTkLabel(res_row, text="No recording yet",
+        rec_file_lbl = ctk.CTkLabel(res_row, text=t("VOICE_LAB_STATUS_NO_RECORDING_YET"),
                                     font=(FONT_FAMILY, 11),
                                     text_color=COLORS["text_muted"], anchor="w")
         rec_file_lbl.pack(side="left", fill="x", expand=True)
@@ -3300,7 +3314,7 @@ class KoKoFishUI:
         btn_save_rec.pack(side="left", padx=(0, 16))
         self._make_tooltip(btn_save_rec, "Save recording to file")
 
-        btn_clone_rec = ctk.CTkButton(res_row, text="🧬  Clone Voice",
+        btn_clone_rec = ctk.CTkButton(res_row, text=t("VOICE_LAB_BTN_CLONE_FROM_REC"),
                                       width=150, height=36, corner_radius=8,
                                       fg_color=COLORS["accent"],
                                       hover_color=COLORS["accent_hover"],
@@ -3345,8 +3359,8 @@ class KoKoFishUI:
             btn_preview.configure(state="disabled")
             btn_save_rec.configure(state="disabled")
             btn_clone_rec.configure(state="disabled")
-            rec_status.configure(text="Recording  0:00", text_color=COLORS["danger"])
-            rec_file_lbl.configure(text="Recording…", text_color=COLORS["danger"])
+            rec_status.configure(text=t("VOICE_LAB_STATUS_RECORDING_ACTIVE"), text_color=COLORS["danger"])
+            rec_file_lbl.configure(text=t("VOICE_LAB_STATUS_RECORDING_ACTIVE"), text_color=COLORS["danger"])
 
             SR = 44100
             dev_idx = _get_device_index()
@@ -3394,9 +3408,9 @@ class KoKoFishUI:
             btn_stop.configure(state="disabled")
 
             if not self._mic_rec_frames:
-                rec_status.configure(text="Nothing captured",
+                rec_status.configure(text=t("VOICE_LAB_STATUS_NOTHING_CAPTURED"),
                                      text_color=COLORS["text_muted"])
-                rec_file_lbl.configure(text="No recording yet",
+                rec_file_lbl.configure(text=t("VOICE_LAB_STATUS_NO_RECORDING_YET"),
                                        text_color=COLORS["text_muted"])
                 return
 
@@ -3554,7 +3568,7 @@ class KoKoFishUI:
                     done_evt.wait(timeout=180)
 
             self.root.after(0, lambda: self.tts_status.configure(
-                text="Transcribing recording for voice conditioning…"
+                text=t("VOICE_LAB_STATUS_TRANSCRIBING_REC")
             ))
             threading.Thread(target=_transcribe_and_clone, daemon=True, name="MicClone").start()
 
@@ -4389,11 +4403,11 @@ class KoKoFishUI:
             command=_run_enhance,
         ).pack(side="left", padx=4, pady=6)
 
-        ctk.CTkLabel(
-            ai_bar,
-            text=t("SCRIPT_LAB_AI_TAG_INFO"),
-            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
-        ).pack(side="right", padx=10, pady=6)
+        #ctk.CTkLabel(
+          #  ai_bar,
+           # text=t("SCRIPT_LAB_AI_TAG_INFO"),
+           # font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+        #).pack(side="right", padx=10, pady=6)
 
         # Script text area
         script_text = ctk.CTkTextbox(
@@ -6411,10 +6425,10 @@ class KoKoFishUI:
 
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
         btn_row.pack(pady=(0, 16))
-        ctk.CTkButton(btn_row, text="💾  Save", width=120, height=36,
+        ctk.CTkButton(btn_row, text=t("COMMON_BTN_SAVE"), width=120, height=36,
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                       font=(FONT_FAMILY, 13, "bold"), command=_save_meta).pack(side="left", padx=6)
-        ctk.CTkButton(btn_row, text="Cancel", width=100, height=36,
+        ctk.CTkButton(btn_row, text=t("COMMON_BTN_CANCEL"), width=100, height=36,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       font=(FONT_FAMILY, 13), command=win.destroy).pack(side="left", padx=6)
 
@@ -7831,7 +7845,7 @@ class KoKoFishUI:
         ]
 
         win = ctk.CTkToplevel(self.root)
-        win.title("Edit AI Prompts")
+        win.title(t("PROMPT_EDITOR_TITLE"))
         win.geometry("980x620")
         win.resizable(True, True)
         win.transient(self.root)
@@ -7839,15 +7853,14 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             win,
-            text="AI Prompt Editor",
+            text=t("PROMPT_EDITOR_TITLE"),
             font=(FONT_FAMILY, 15, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(
             win,
-            text="Changes take effect immediately — saved to prompts.json alongside the app.\n"
-                 "Reset restores factory defaults and deletes prompts.json.",
+            text=t("PROMPT_EDITOR_HINT"),
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_muted"],
             justify="left",
@@ -7889,7 +7902,7 @@ class KoKoFishUI:
             for key, tb in _textboxes.items():
                 set_prompt(key, tb.get("1.0", "end-1c"))
             save_prompts()
-            self.tts_status.configure(text="✅ Prompts saved")
+            self.tts_status.configure(text=t("PROMPT_EDITOR_STATUS_SAVED"))
 
         def _reset():
             from tkinter import messagebox as _mb
@@ -7899,17 +7912,17 @@ class KoKoFishUI:
             for key, tb in _textboxes.items():
                 tb.delete("1.0", "end")
                 tb.insert("1.0", get_prompt(key))
-            self.tts_status.configure(text="Prompts reset to defaults")
+            self.tts_status.configure(text=t("PROMPT_EDITOR_STATUS_RESET"))
 
         ctk.CTkButton(
-            btn_row, text="💾  Save All",
+            btn_row, text=t("PROMPT_EDITOR_BTN_SAVE"),
             fg_color="#5a3e8a", hover_color="#7b5ea7",
             font=(FONT_FAMILY, 12, "bold"), height=32, width=120,
             command=_save,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btn_row, text="↺  Reset to Defaults",
+            btn_row, text=t("PROMPT_EDITOR_BTN_RESET"),
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             font=(FONT_FAMILY, 12), height=32, width=160,
@@ -8433,7 +8446,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             dialog,
-            text="HuggingFace Token:",
+            text=t("SETTINGS_HF_TOKEN_LABEL"),
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_primary"],
             anchor="w",
@@ -8467,12 +8480,12 @@ class KoKoFishUI:
         def _start_download():
             token = token_entry.get().strip()
             if not token:
-                status_label.configure(text="Please enter a token.", text_color=COLORS["danger"])
+                status_label.configure(text=t("SETTINGS_HF_ENTER_TOKEN"), text_color=COLORS["danger"])
                 return
             self.settings.hf_token = token
             self.settings.save()
-            download_btn.configure(state="disabled", text="Downloading…")
-            status_label.configure(text="Starting download…", text_color=COLORS["warning"])
+            download_btn.configure(state="disabled", text=t("SETTINGS_HF_DOWNLOADING"))
+            status_label.configure(text=t("SETTINGS_HF_STATUS_STARTING"), text_color=COLORS["warning"])
 
             def _on_progress(msg, _frac=None):
                 dialog.after(0, lambda m=msg: status_label.configure(
@@ -8483,14 +8496,14 @@ class KoKoFishUI:
                 ok = setup_fish_speech(engine=_eng, on_progress=_on_progress, hf_token=_tok)
                 if ok:
                     dialog.after(0, lambda: status_label.configure(
-                        text=f"✅ {engine_display} ready — restarting…", text_color=COLORS["success"]
+                        text=t("SETTINGS_HF_STATUS_READY", engine=engine_display), text_color=COLORS["success"]
                     ))
                     dialog.after(1500, lambda: (dialog.destroy(), self._restart_app()))
                 else:
                     dialog.after(0, lambda: status_label.configure(
-                        text="❌ Download failed — check token or connection.", text_color=COLORS["danger"]
+                        text=t("SETTINGS_HF_STATUS_FAILED"), text_color=COLORS["danger"]
                     ))
-                    dialog.after(0, lambda: download_btn.configure(state="normal", text="Retry"))
+                    dialog.after(0, lambda: download_btn.configure(state="normal", text=t("SETTINGS_HF_BTN_RETRY")))
 
             threading.Thread(target=_download, daemon=True, name="HFDownload").start()
 
@@ -8499,7 +8512,7 @@ class KoKoFishUI:
 
         ctk.CTkButton(
             btn_row,
-            text="Cancel",
+            text=t("COMMON_BTN_CANCEL"),
             width=100,
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
