@@ -1351,10 +1351,10 @@ class KoKoFishUI:
         def _aud_convert():
             src = self._conv_audio_in_path
             if not src or not os.path.isfile(src):
-                messagebox.showinfo("Convert", "No input audio file selected.", parent=self.root)
+                messagebox.showinfo(t("FILE_LAB_AUDIO_HEADER"), t("FILE_LAB_MSG_NO_INPUT_AUDIO"), parent=self.root)
                 return
             if not is_ffmpeg_available():
-                messagebox.showerror("Convert", "FFmpeg is required for audio conversion.", parent=self.root)
+                messagebox.showerror(t("FILE_LAB_AUDIO_HEADER"), t("FILE_LAB_MSG_NO_FFMPEG_CONV"), parent=self.root)
                 return
 
             to_fmt = _aud_to_var.get()
@@ -1638,10 +1638,10 @@ class KoKoFishUI:
 
         def _comb_export():
             if not _comb_files:
-                messagebox.showinfo("Combine", "No files to combine.", parent=self.root)
+                messagebox.showinfo(t("FILE_LAB_COMBINE_HEADER"), t("FILE_LAB_MSG_NO_FILES_COMBINE"), parent=self.root)
                 return
             if not is_ffmpeg_available():
-                messagebox.showerror("Combine", "FFmpeg required for audio combine.", parent=self.root)
+                messagebox.showerror(t("FILE_LAB_COMBINE_HEADER"), t("FILE_LAB_MSG_NO_FFMPEG_COMBINE"), parent=self.root)
                 return
             out = filedialog.asksaveasfilename(
                 title="Save combined audiobook as…",
@@ -2414,7 +2414,7 @@ class KoKoFishUI:
         # Normal play (or translated-done playback)
         play_path = item.get("tl_path") if (translate_on and item.get("tl_status") == "done") else item["path"]
         if not play_path or not os.path.isfile(play_path):
-            messagebox.showwarning("Listen Lab", f"File not found:\n{play_path}", parent=self.root)
+            messagebox.showwarning(t("MAIN_TAB_LISTEN_LAB"), t("LISTEN_LAB_MSG_FILE_NOT_FOUND", path=play_path), parent=self.root)
             return
 
         # ── Same item tapped: toggle pause ────────────────────────────────
@@ -2570,7 +2570,7 @@ class KoKoFishUI:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except Exception as exc:
-                messagebox.showerror("Listen Lab", f"Cannot start ffmpeg:\n{exc}", parent=self.root)
+                messagebox.showerror(t("MAIN_TAB_LISTEN_LAB"), t("LISTEN_LAB_MSG_FFMPEG_ERROR", error=exc), parent=self.root)
                 self._listen_preview_idx = -1
                 return
 
@@ -2883,9 +2883,8 @@ class KoKoFishUI:
         from tag_suggester import is_llm_available, is_qwen_model_ready
         if not is_llm_available() or not is_qwen_model_ready():
             messagebox.showwarning(
-                "Listen Lab — Translation",
-                "Qwen model not ready.\n\n"
-                "Go to Settings → download the Qwen model, then try again.",
+                t("MAIN_TAB_LISTEN_LAB"),
+                t("LISTEN_LAB_MSG_QWEN_NOT_READY"),
                 parent=self.root,
             )
             return
@@ -3129,7 +3128,7 @@ class KoKoFishUI:
                 audio.export(dest, format=fmt)
                 self._listen_status.configure(text=f"Saved: {os.path.basename(dest)}")
             except Exception as exc:
-                messagebox.showerror("Save", f"Export failed:\n{exc}", parent=self.root)
+                messagebox.showerror(t("COMMON_BTN_SAVE"), t("LISTEN_LAB_MSG_SAVE_FAILED", error=exc), parent=self.root)
 
     def _listen_remove(self, idx: int):
         if self._listen_preview_idx == idx:
@@ -3626,19 +3625,19 @@ class KoKoFishUI:
 
         def _clone_from_recording():
             if not self._mic_rec_path or not os.path.isfile(self._mic_rec_path):
-                messagebox.showwarning("Clone Voice", "No recording available.", parent=self.root)
+                messagebox.showwarning(t("VOICE_LAB_BTN_CLONE"), t("VOICE_LAB_MSG_CLONE_NO_RECORDING"), parent=self.root)
                 return
             _stop_preview_internal()
             dialog = ctk.CTkInputDialog(
-                text="Enter a name for this voice profile:",
-                title="Clone Voice from Recording",
+                text=t("VOICE_LAB_DIALOG_CLONE_PROMPT"),
+                title=t("VOICE_LAB_DIALOG_CLONE_TITLE"),
             )
             name = dialog.get_input()
             if not name or not name.strip():
                 return
             name = name.strip()
             if self.voices.voice_exists(name):
-                messagebox.showwarning("KoKoFish", f"Voice '{name}' already exists.", parent=self.root)
+                messagebox.showwarning("KoKoFish", t("VOICE_LAB_MSG_CLONE_NAME_EXISTS", name=name), parent=self.root)
                 return
 
             rec_path = self._mic_rec_path
@@ -3655,13 +3654,11 @@ class KoKoFishUI:
                     self.root.after(0, self._refresh_voice_grid)
                     self.root.after(0, lambda: messagebox.showinfo(
                         "KoKoFish",
-                        f"Voice '{name}' created successfully!"
-                        + (f"\n\nTranscript:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\""
-                           if transcript else ""),
+                        t("VOICE_LAB_MSG_CLONE_SUCCESS", name=name),
                     ))
                 except Exception as exc:
                     self.root.after(0, lambda e=exc: messagebox.showerror(
-                        "Error", f"Voice cloning failed:\n{e}"
+                        "KoKoFish", t("VOICE_LAB_MSG_CLONE_FAILED", error=e)
                     ))
 
             def _transcribe_and_clone():
@@ -6463,10 +6460,10 @@ class KoKoFishUI:
     def _open_audio_meta_editor(self, audio_path: str):
         """Open a window to view/edit audio file metadata using FFmpeg."""
         if not audio_path or not os.path.isfile(audio_path):
-            messagebox.showwarning("Metadata", "No audio file found.", parent=self.root)
+            messagebox.showwarning(t("METADATA_MSG_NO_FILE_TITLE"), t("METADATA_MSG_NO_FILE_BODY"), parent=self.root)
             return
         if not is_ffmpeg_available():
-            messagebox.showerror("Metadata", "FFmpeg is required to edit metadata but was not found.", parent=self.root)
+            messagebox.showerror(t("METADATA_MSG_NO_FILE_TITLE"), t("METADATA_MSG_NO_FFMPEG"), parent=self.root)
             return
 
         import subprocess, json, shutil, tempfile
@@ -6485,7 +6482,7 @@ class KoKoFishUI:
 
         # ── Build editor window ─────────────────────────────────────────
         win = ctk.CTkToplevel(self.root)
-        win.title(f"Metadata — {os.path.basename(audio_path)}")
+        win.title(t("METADATA_EDITOR_TITLE", filename=os.path.basename(audio_path)))
         win.geometry("480x400")
         win.configure(fg_color=COLORS["bg_dark"])
         win.grab_set()
@@ -6499,12 +6496,12 @@ class KoKoFishUI:
                "border_width": 1, "width": 300, "height": 34}
 
         fields_cfg = [
-            ("title",   "Title"),
-            ("artist",  "Artist / Author"),
-            ("album",   "Album"),
-            ("date",    "Year"),
-            ("genre",   "Genre"),
-            ("comment", "Comment"),
+            ("title",   t("METADATA_FIELD_TITLE")),
+            ("artist",  t("METADATA_FIELD_ARTIST")),
+            ("album",   t("METADATA_FIELD_ALBUM")),
+            ("date",    t("METADATA_FIELD_DATE")),
+            ("genre",   t("METADATA_FIELD_GENRE")),
+            ("comment", t("METADATA_FIELD_COMMENT")),
         ]
 
         entries: dict = {}
@@ -6539,14 +6536,14 @@ class KoKoFishUI:
                 if r.returncode != 0:
                     raise RuntimeError(r.stderr[-600:])
                 shutil.move(tmp_path, audio_path)
-                messagebox.showinfo("Metadata", "Metadata saved successfully.", parent=win)
+                messagebox.showinfo(t("METADATA_MSG_NO_FILE_TITLE"), t("METADATA_MSG_SAVED"), parent=win)
                 win.destroy()
             except Exception as exc:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
-                messagebox.showerror("Metadata", f"Failed to save metadata:\n{exc}", parent=win)
+                messagebox.showerror(t("METADATA_MSG_NO_FILE_TITLE"), t("METADATA_MSG_FAILED", error=exc), parent=win)
 
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
         btn_row.pack(pady=(0, 16))
@@ -7000,7 +6997,7 @@ class KoKoFishUI:
             and os.path.isfile(it["audio_path"])
         ]
         if not ready:
-            messagebox.showinfo("KoKoFish", "No selected items have generated audio yet.")
+            messagebox.showinfo("KoKoFish", t("SPEECH_LAB_MSG_NO_AUDIO_SEL"))
             return
         self._stop_preview()
         self._preview_queue = list(ready)
@@ -7666,7 +7663,7 @@ class KoKoFishUI:
         """Set the audio file for transcription."""
         ext = os.path.splitext(path)[1].lower()
         if ext not in (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".weba", ".webm", ".opus", ".wma", ".amr", ".aac"):
-            messagebox.showwarning("KoKoFish", f"Unsupported audio format: {ext}")
+            messagebox.showwarning("KoKoFish", t("STT_MSG_UNSUPPORTED_FORMAT", ext=ext))
             return
         self._stt_audio_path = path
         name = os.path.basename(path)
@@ -7858,14 +7855,14 @@ class KoKoFishUI:
     def _stt_show_translate_dialog(self, original: str, translated: str, lang: str):
         """Show side-by-side original vs translated transcript with save/send options."""
         win = ctk.CTkToplevel(self.root)
-        win.title(f"Translation → {lang}")
+        win.title(t("STT_TR_DIALOG_TITLE", lang=lang))
         win.geometry("1060x640")
         win.configure(fg_color=COLORS["bg_dark"])
         win.grab_set()
 
         ctk.CTkLabel(
             win,
-            text=f"Translation  →  {lang}",
+            text=t("STT_TR_DIALOG_HEADING", lang=lang),
             font=(FONT_FAMILY, 16, "bold"),
             text_color=COLORS["accent_light"],
         ).pack(pady=(15, 5))
@@ -7875,8 +7872,8 @@ class KoKoFishUI:
         cols.pack(fill="both", expand=True, padx=15, pady=5)
 
         for title, content, editable in [
-            ("Original", original, False),
-            (f"Translated → {lang}", translated, True),
+            (t("STT_TR_COLUMN_ORIGINAL"), original, False),
+            (t("STT_TR_COLUMN_TRANSLATED", lang=lang), translated, True),
         ]:
             card = ctk.CTkFrame(cols, fg_color=COLORS["bg_card"], corner_radius=8)
             card.pack(side="left", fill="both", expand=True, padx=6)
@@ -7909,7 +7906,7 @@ class KoKoFishUI:
         def _save_translated():
             tr_text = self._stt_tr_translated_box.get("1.0", "end").strip()
             path = filedialog.asksaveasfilename(
-                title="Save Translated Transcript",
+                title=t("STT_TR_SAVE_DIALOG_TITLE"),
                 defaultextension=".txt",
                 initialfile=f"{stem} (Original-{lang}).txt",
                 filetypes=[("Text files", "*.txt")],
@@ -7919,7 +7916,7 @@ class KoKoFishUI:
                 return
             with open(path, "w", encoding="utf-8") as f:
                 f.write(tr_text)
-            messagebox.showinfo("Saved", f"Saved to:\n{path}", parent=win)
+            messagebox.showinfo(t("STT_TR_SAVED_TITLE"), t("STT_TR_SAVED_BODY", path=path), parent=win)
 
         def _send(content, suffix):
             filename = f"{stem}{suffix}.txt"
@@ -7931,19 +7928,19 @@ class KoKoFishUI:
                 self.tabview.set("🔊  Speech Lab")
                 win.destroy()
             except Exception as exc:
-                messagebox.showerror("Error", f"Could not send to Speech Lab:\n{exc}", parent=win)
+                messagebox.showerror("Error", t("STT_TR_SEND_ERROR", error=exc), parent=win)
 
         _btn = {"font": (FONT_FAMILY, 12), "corner_radius": 8, "height": 34}
 
         ctk.CTkButton(
-            btns, text="💾  Save Translated", width=160,
+            btns, text=t("STT_TR_BTN_SAVE"), width=160,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=_save_translated, **_btn,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btns, text="➕  Send Original to Speech Lab", width=220,
+            btns, text=t("STT_TR_BTN_SEND_ORIGINAL"), width=220,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=lambda: _send(original, ""),
@@ -7951,7 +7948,7 @@ class KoKoFishUI:
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btns, text=f"➕  Send Translation to Speech Lab", width=240,
+            btns, text=t("STT_TR_BTN_SEND_TRANSLATED"), width=240,
             fg_color=COLORS["success"], hover_color="#05b886",
             text_color="#0a0a18",
             command=lambda: _send(
@@ -7962,7 +7959,7 @@ class KoKoFishUI:
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btns, text="✕  Close", width=90,
+            btns, text=t("COMMON_BTN_CLOSE"), width=90,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"], border_width=1,
             command=win.destroy, **_btn,
