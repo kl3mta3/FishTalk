@@ -61,59 +61,6 @@ VENV_DIR     = os.path.join(APP_DIR, "venv")
 SETUP_MARKER = os.path.join(APP_DIR, ".setup_complete")
 PACKAGES_DIR = os.path.join(APP_DIR, "packages")
 
-# ---------------------------------------------------------------------------
-# Kokoro download script — uses huggingface_hub directly (already in venv),
-# without importing utils.py (which pulls in torch/numpy and can crash).
-# Written to a temp file and run with the venv's python.exe.
-# ---------------------------------------------------------------------------
-_KOKORO_DL_SCRIPT = r'''
-import sys, os, shutil
-
-kd = sys.argv[1]           # kokoro_models directory (passed as arg)
-os.makedirs(kd, exist_ok=True)
-
-downloads = [
-    ("kokoro-v1.0.int8.onnx", "onnx/kokoro-v1.0.int8.onnx", 300),
-    ("voices-v1.0.bin",        "voices-v1.0.bin",             15),
-]
-n  = len(downloads)
-ok = True
-
-try:
-    from huggingface_hub import hf_hub_download
-except ImportError as e:
-    print(f"PROG:huggingface_hub not found: {e}|0.0", flush=True, file=sys.stderr)
-    sys.exit(1)
-
-for i, (local_name, repo_path, min_mb) in enumerate(downloads):
-    dest = os.path.join(kd, local_name)
-    if os.path.isfile(dest) and os.path.getsize(dest) > min_mb * 1_000_000:
-        print(f"PROG:{local_name} already present|{(i+1)/n:.3f}", flush=True)
-        continue
-    print(f"PROG:Downloading {local_name} (~{min_mb+10} MB)…|{i/n:.3f}", flush=True)
-    try:
-        path = hf_hub_download(
-            repo_id="hexgrad/Kokoro-82M",
-            filename=repo_path,
-            local_dir=kd,
-            local_dir_use_symlinks=False,
-        )
-        # hf_hub_download may save to kd/onnx/filename — move to flat kd/filename
-        if path and os.path.abspath(path) != os.path.abspath(dest) and os.path.isfile(path):
-            shutil.move(path, dest)
-        if os.path.isfile(dest):
-            print(f"PROG:{local_name} saved ({os.path.getsize(dest)//1_000_000} MB)|{(i+0.95)/n:.3f}", flush=True)
-        else:
-            raise FileNotFoundError(f"Expected file not found after download: {dest}")
-    except Exception as exc:
-        print(f"PROG:Download failed — {exc}|{i/n:.3f}", flush=True, file=sys.stderr)
-        ok = False
-        break
-
-print("PROG:Kokoro models ready|1.000", flush=True)
-sys.exit(0 if ok else 1)
-'''
-
 _log(f"VENV_DIR    : {VENV_DIR}  (exists={os.path.exists(VENV_DIR)})")
 _log(f"SETUP_MARKER: {SETUP_MARKER}  (exists={os.path.exists(SETUP_MARKER)})")
 _log(f"PACKAGES_DIR: {PACKAGES_DIR}  (exists={os.path.exists(PACKAGES_DIR)})")
@@ -304,12 +251,11 @@ class LanguagePickerDialog(tk.Tk):
 # ===========================================================================
 class InstallerGUI(tk.Tk):
     # Progress milestones (%)
-    _P_VENV      = 5
-    _P_PIP       = 10
-    _P_TORCH     = 35
-    _P_LLAMA     = 45
-    _P_REQ_END   = 85   # requirements.txt finishes here
-    _P_KOKORO_END = 99  # Kokoro model download finishes here
+    _P_VENV    = 5
+    _P_PIP     = 10
+    _P_TORCH   = 35
+    _P_LLAMA   = 45
+    _P_REQ_END = 99   # requirements.txt is the final install step
 
     def __init__(self):
         super().__init__()
@@ -607,7 +553,7 @@ class InstallerGUI(tk.Tk):
                         _log(f"Created folder: {_folder}")
 
                 # ── Step 1: venv ───────────────────────────────────────────
-                _log(f"Step 1/6: venv (exists={os.path.exists(VENV_DIR)})")
+                _log(f"Step 1/5: venv (exists={os.path.exists(VENV_DIR)})")
                 self.update_status(t("LAUNCHER_STEP_VENV"))
                 self.update_progress(0, t("LAUNCHER_STEP_VENV_DETAIL"))
                 if not os.path.exists(VENV_DIR):
@@ -620,7 +566,7 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_VENV)
 
                 # ── Step 2: upgrade pip ────────────────────────────────────
-                _log("Step 2/6: upgrade pip")
+                _log("Step 2/5: upgrade pip")
                 self.update_status(t("LAUNCHER_STEP_PIP"))
                 self.update_progress(self._P_VENV, t("LAUNCHER_STEP_PIP_DETAIL"))
                 _run_logged("upgrade pip",
@@ -630,7 +576,7 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_PIP)
 
                 # ── Step 3: PyTorch CPU ────────────────────────────────────
-                _log("Step 3/6: PyTorch CPU")
+                _log("Step 3/5: PyTorch CPU")
                 self.update_status(t("LAUNCHER_STEP_PYTORCH"))
                 self.update_progress(self._P_PIP, t("LAUNCHER_STEP_PYTORCH_DETAIL"))
                 torch_local = _run_logged("torch local wheels",
@@ -651,7 +597,7 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_TORCH)
 
                 # ── Step 4: llama-cpp-python (wheel only) ──────────────────
-                _log("Step 4/6: llama-cpp-python (wheel only)")
+                _log("Step 4/5: llama-cpp-python (wheel only)")
                 self.update_status(t("LAUNCHER_STEP_LLAMA"))
                 self.update_progress(self._P_TORCH, t("LAUNCHER_STEP_LLAMA_DETAIL"))
                 llama_result = _run_logged("llama-cpp-python (wheel only)",
@@ -669,7 +615,7 @@ class InstallerGUI(tk.Tk):
 
                 # ── Step 5: requirements.txt with per-package progress ─────
                 req_file = os.path.join(APP_DIR, "requirements.txt")
-                _log(f"Step 5/6: requirements.txt (exists={os.path.exists(req_file)})")
+                _log(f"Step 5/5: requirements.txt (exists={os.path.exists(req_file)})")
                 self.update_status(t("LAUNCHER_STEP_COMPONENTS"))
 
                 total_pkgs = _count_requirements(req_file)
@@ -704,68 +650,8 @@ class InstallerGUI(tk.Tk):
 
                 self.update_progress(self._P_REQ_END, "")
 
-                # ── Step 6: Kokoro voice model files ──────────────────────
-                _log("Step 6/6: Kokoro model files")
-                self.update_status(t("LAUNCHER_STEP_KOKORO"))
-
-                kokoro_dir   = os.path.join(APP_DIR, "kokoro_models")
-                onnx_path    = os.path.join(kokoro_dir, "kokoro-v1.0.int8.onnx")
-                voices_path  = os.path.join(kokoro_dir, "voices-v1.0.bin")
-                os.makedirs(kokoro_dir, exist_ok=True)
-
-                def _file_ok(p, min_mb):
-                    return os.path.isfile(p) and os.path.getsize(p) > min_mb * 1_000_000
-
-                if _file_ok(onnx_path, 50) and _file_ok(voices_path, 5):
-                    _log("Kokoro model files already present — skipping")
-                    self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_SKIP"))
-                else:
-                    _log("Kokoro model files missing — downloading via huggingface_hub")
-                    # Use the venv's console python (python.exe, not pythonw.exe)
-                    # so stdout can be captured for progress reporting.
-                    venv_py = os.path.join(VENV_DIR, "Scripts", "python.exe")
-                    if not os.path.isfile(venv_py):
-                        venv_py = os.path.join(VENV_DIR, "Scripts", "pythonw.exe")
-
-                    # Write stdlib-only download script — no huggingface_hub needed
-                    tmp_script = os.path.join(APP_DIR, ".kokoro_dl_tmp.py")
-                    with open(tmp_script, "w", encoding="utf-8") as _f:
-                        _f.write(_KOKORO_DL_SCRIPT)
-
-                    _kok_range = self._P_KOKORO_END - self._P_REQ_END
-
-                    def _on_kokoro_line(line: str):
-                        if line.startswith("PROG:"):
-                            parts = line[5:].rsplit("|", 1)
-                            msg  = parts[0].strip()
-                            try:
-                                frac = float(parts[1])
-                            except Exception:
-                                frac = 0.0
-                            pct = self._P_REQ_END + frac * _kok_range
-                            self.update_progress(pct, msg)
-
-                    try:
-                        kok_result = _run_with_progress(
-                            "kokoro model download",
-                            [venv_py, tmp_script, kokoro_dir],
-                            on_line=_on_kokoro_line,
-                            cwd=APP_DIR,
-                            creationflags=subprocess.CREATE_NO_WINDOW,
-                        )
-                    finally:
-                        try:
-                            os.unlink(tmp_script)
-                        except Exception:
-                            pass
-
-                    if kok_result.returncode != 0:
-                        _log("WARNING: Kokoro model download failed — app will prompt on first use")
-                        self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_DL_FAILED"))
-                    else:
-                        _log("Kokoro model files ready")
-                        self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_SKIP"))
-
+                # Kokoro model files are downloaded by the splash screen on
+                # first launch — same pattern as FFmpeg and Qwen.
                 _log("=== Installation completed successfully ===")
                 with open(SETUP_MARKER, "w") as f:
                     f.write("setup_complete")
@@ -785,84 +671,6 @@ class InstallerGUI(tk.Tk):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # ── Kokoro-only repair (for existing installs missing model files) ─────
-    def run_kokoro_only(self):
-        """
-        Download Kokoro model files only — used when venv is already set up
-        but the model files are missing (e.g. upgrade from pre-step-6 install).
-        """
-        def _worker():
-            try:
-                kokoro_dir  = os.path.join(APP_DIR, "kokoro_models")
-                onnx_path   = os.path.join(kokoro_dir, "kokoro-v1.0.int8.onnx")
-                voices_path = os.path.join(kokoro_dir, "voices-v1.0.bin")
-                os.makedirs(kokoro_dir, exist_ok=True)
-
-                def _file_ok(p, min_mb):
-                    return os.path.isfile(p) and os.path.getsize(p) > min_mb * 1_000_000
-
-                if _file_ok(onnx_path, 50) and _file_ok(voices_path, 5):
-                    _log("run_kokoro_only: files already present")
-                    self.update_progress(100, t("LAUNCHER_KOKORO_SKIP"))
-                    self.after(800, self._spawn_and_linger)
-                    return
-
-                _log("run_kokoro_only: downloading missing Kokoro model files")
-                self.update_status(t("LAUNCHER_STEP_KOKORO"))
-                self.update_progress(0, "")
-
-                # Use console python.exe (not pythonw.exe) so stdout is captured.
-                venv_py = os.path.join(VENV_DIR, "Scripts", "python.exe")
-                if not os.path.isfile(venv_py):
-                    venv_py = os.path.join(VENV_DIR, "Scripts", "pythonw.exe")
-
-                # Write the download script to a temp file (pure stdlib — no
-                # huggingface_hub import, so it works even on a fresh venv).
-                tmp_script = os.path.join(APP_DIR, ".kokoro_dl_tmp.py")
-                with open(tmp_script, "w", encoding="utf-8") as _f:
-                    _f.write(_KOKORO_DL_SCRIPT)
-
-                def _on_line(line: str):
-                    if line.startswith("PROG:"):
-                        parts = line[5:].rsplit("|", 1)
-                        msg  = parts[0].strip()
-                        try:
-                            frac = float(parts[1])
-                        except Exception:
-                            frac = 0.0
-                        self.update_progress(frac * 99, msg)
-
-                try:
-                    result = _run_with_progress(
-                        "kokoro model download (repair)",
-                        [venv_py, tmp_script, kokoro_dir],
-                        on_line=_on_line,
-                        cwd=APP_DIR,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                finally:
-                    try:
-                        os.unlink(tmp_script)
-                    except Exception:
-                        pass
-
-                if result.returncode != 0:
-                    _log("run_kokoro_only: download failed — launching anyway")
-                    self.update_progress(99, t("LAUNCHER_KOKORO_DL_FAILED"))
-                else:
-                    _log("run_kokoro_only: download complete")
-                    self.update_progress(99, t("LAUNCHER_KOKORO_SKIP"))
-
-                self.update_status(t("LAUNCHER_STEP_COMPLETE"))
-                self.after(1000, self._spawn_and_linger)
-
-            except Exception as e:
-                _log(f"run_kokoro_only EXCEPTION: {e}")
-                # Non-fatal — just launch the app anyway
-                self.after(0, launch_main_app)
-
-        threading.Thread(target=_worker, daemon=True).start()
-
 
 # ===========================================================================
 # Entry point
@@ -874,29 +682,14 @@ if __name__ == "__main__":
     _log(f"__main__: setup_done={os.path.exists(SETUP_MARKER)}  venv_python={os.path.exists(PYTHON_EXE)}")
 
     if os.path.exists(SETUP_MARKER) and os.path.exists(PYTHON_EXE):
-        # Venv is ready — but check whether Kokoro model files exist too.
-        _kokoro_dir    = os.path.join(APP_DIR, "kokoro_models")
-        _onnx_path     = os.path.join(_kokoro_dir, "kokoro-v1.0.int8.onnx")
-        _voices_path   = os.path.join(_kokoro_dir, "voices-v1.0.bin")
-        _onnx_ok   = os.path.isfile(_onnx_path)   and os.path.getsize(_onnx_path)   > 50 * 1_000_000
-        _voices_ok = os.path.isfile(_voices_path) and os.path.getsize(_voices_path) >  5 * 1_000_000
-        _log(f"Kokoro check: onnx_ok={_onnx_ok}  voices_ok={_voices_ok}")
-
-        if _onnx_ok and _voices_ok:
-            _log("All files present — launching main app directly")
-            launch_main_app()
-        else:
-            # Venv exists but Kokoro models are missing (e.g. upgrade from
-            # a pre-step-6 install, or a partial first run).
-            _log("Kokoro models missing — opening installer for Kokoro-only repair")
-            gui = InstallerGUI()
-            gui.after(500, gui.run_kokoro_only)
-            gui.mainloop()
+        # Venv is ready — launch directly.  The splash screen in main.py
+        # handles any missing Kokoro models (same pattern as FFmpeg / Qwen).
+        _log("Setup complete — launching main app")
+        launch_main_app()
     else:
         # First run — show language picker, then full installer
         _log("First run — showing language picker")
         LanguagePickerDialog.pick()
-        # Language is now saved and active; open the installer
         _log("Language selected — opening installer GUI")
         gui = InstallerGUI()
         gui.after(1000, gui.run_setup)

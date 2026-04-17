@@ -218,8 +218,9 @@ def setup_kokoro(on_progress=None) -> bool:
     """
     Download Kokoro ONNX model files from HuggingFace if missing.
 
-    Files: kokoro-v1.0.int8.onnx (~310 MB) and voices-v1.0.bin (~20 MB)
-    from hexgrad/Kokoro-82M.
+    Source repo : speaches-ai/Kokoro-82M-v1.0-ONNX-int8
+    Files       : model.onnx  (~100 MB) → saved as kokoro-v1.0.int8.onnx
+                  voices.bin  (~20 MB)  → saved as voices-v1.0.bin
 
     on_progress(message, fraction) is called throughout.
     Returns True if models are ready, False on failure.
@@ -228,9 +229,10 @@ def setup_kokoro(on_progress=None) -> bool:
     model_dir = os.path.join(app_dir, "kokoro_models")
     os.makedirs(model_dir, exist_ok=True)
 
+    # (local_filename, filename_in_repo)
     files = [
-        ("kokoro-v1.0.int8.onnx", "onnx/kokoro-v1.0.int8.onnx"),
-        ("voices-v1.0.bin", "voices-v1.0.bin"),
+        ("kokoro-v1.0.int8.onnx", "model.onnx"),
+        ("voices-v1.0.bin",        "voices.bin"),
     ]
 
     try:
@@ -247,19 +249,18 @@ def setup_kokoro(on_progress=None) -> bool:
         if on_progress:
             on_progress(f"Downloading Kokoro {local_name}…", frac_base + 0.05)
         try:
-            logger.info("Downloading Kokoro model: %s", repo_path)
-            hf_hub_download(
-                repo_id="hexgrad/Kokoro-82M",
+            logger.info("Downloading Kokoro model: %s from speaches-ai/Kokoro-82M-v1.0-ONNX-int8", repo_path)
+            path = hf_hub_download(
+                repo_id="speaches-ai/Kokoro-82M-v1.0-ONNX-int8",
                 filename=repo_path,
                 local_dir=model_dir,
                 local_dir_use_symlinks=False,
             )
-            # hf_hub_download saves into a subfolder matching repo_path structure;
-            # move it to the flat model_dir if needed.
-            downloaded = os.path.join(model_dir, repo_path)
-            if os.path.isfile(downloaded) and downloaded != dest:
+            # hf_hub_download returns the path it saved to; rename to the
+            # local filename expected by kokoro_engine.py if different.
+            if path and os.path.abspath(path) != os.path.abspath(dest):
                 import shutil as _shutil
-                _shutil.move(downloaded, dest)
+                _shutil.move(path, dest)
             logger.info("Kokoro model saved: %s", dest)
         except Exception as exc:
             logger.error("Kokoro model download failed (%s): %s", local_name, exc)
