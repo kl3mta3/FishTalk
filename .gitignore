@@ -26,7 +26,6 @@ logs/
 
 # Temp / generated audio files
 *.wav
-*.mp3
 
 # Compiled executables (distribute via releases, not source)
 *.exe
