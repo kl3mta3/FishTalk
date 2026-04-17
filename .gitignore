@@ -34,7 +34,7 @@ logs/
 *.zip
 
 # =============================================================================
-# Large downloaded assets — auto-downloaded on first run, cannot go on GitHub
+# Large downloaded assets — auto-downloaded on first run
 # =============================================================================
 
 # Fish-Speech source + checkpoints (auto-downloaded: ~1.5 GB each)
