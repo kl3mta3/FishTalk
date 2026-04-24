@@ -15397,6 +15397,31 @@
       "hi": "🎙  आवाज़ का नमूना रिकॉर्ड करें",
       "sv": "🎙  Spela in röstprov"
     },
+    "VOICE_LAB_UPLOAD_HEADER": {
+      "value": "📁  Upload & Clip Audio",
+      "dynamic": false,
+      "en": "📁  Upload & Clip Audio"
+    },
+    "VOICE_LAB_UPLOAD_NO_FILE": {
+      "value": "No audio file loaded — drag & drop or click Browse",
+      "dynamic": false,
+      "en": "No audio file loaded — drag & drop or click Browse"
+    },
+    "VOICE_LAB_UPLOAD_BROWSE": {
+      "value": "Browse…",
+      "dynamic": false,
+      "en": "Browse…"
+    },
+    "VOICE_LAB_UPLOAD_BTN_PREVIEW": {
+      "value": "Preview Clip",
+      "dynamic": false,
+      "en": "Preview Clip"
+    },
+    "VOICE_LAB_UPLOAD_BTN_CLONE": {
+      "value": "🧬  Clone From Clip",
+      "dynamic": false,
+      "en": "🧬  Clone From Clip"
+    },
     "VOICE_LAB_MICROPHONE_LABEL": {
       "value": "Microphone:",
       "dynamic": false,

@@ -3447,6 +3447,7 @@ class KoKoFishUI:
             tab_clone = self._voice_lab_tabview.add(t("VOICE_LAB_TAB_CLONE"))
 
             self._build_mic_recorder_card(tab_clone)
+            self._build_upload_clip_card(tab_clone)
             self.voice_grid_frame = ctk.CTkScrollableFrame(
                 tab_clone, fg_color=COLORS["bg_card"],
                 corner_radius=8, scrollbar_button_color=COLORS["accent"],
@@ -3457,6 +3458,7 @@ class KoKoFishUI:
             self._build_voice_design_card(tab_design)
         else:
             self._build_mic_recorder_card(tab)
+            self._build_upload_clip_card(tab)
             self.voice_grid_frame = ctk.CTkScrollableFrame(
                 tab, fg_color=COLORS["bg_input"],
                 corner_radius=8, scrollbar_button_color=COLORS["accent"],
@@ -3710,6 +3712,55 @@ class KoKoFishUI:
         self._design_name_entry.delete(0, "end")
         self._refresh_voice_grid()
 
+    def _build_collapsible_card(self, parent, header_text: str,
+                                start_collapsed: bool = False):
+        """
+        Build a card with a click-to-collapse header.
+
+        Returns (card_frame, body_frame). Pack children inside body_frame.
+        """
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
+        card.pack(fill="x", padx=15, pady=(0, 8))
+
+        header_row = ctk.CTkFrame(card, fg_color="transparent")
+        header_row.pack(fill="x", padx=14, pady=(10, 6))
+
+        state = {"collapsed": bool(start_collapsed)}
+        body = ctk.CTkFrame(card, fg_color="transparent")
+
+        chevron = ctk.CTkLabel(
+            header_row, text=("▸" if state["collapsed"] else "▾"),
+            font=(FONT_FAMILY, 13, "bold"),
+            text_color=COLORS["text_secondary"], width=16,
+        )
+        chevron.pack(side="left")
+        title = ctk.CTkLabel(
+            header_row, text=header_text,
+            font=(FONT_FAMILY, 13, "bold"),
+            text_color=COLORS["text_secondary"],
+        )
+        title.pack(side="left", padx=(6, 0))
+
+        def _toggle(_e=None):
+            state["collapsed"] = not state["collapsed"]
+            chevron.configure(text=("▸" if state["collapsed"] else "▾"))
+            if state["collapsed"]:
+                body.pack_forget()
+            else:
+                body.pack(fill="x", padx=0, pady=0)
+
+        for w in (header_row, chevron, title):
+            w.bind("<Button-1>", _toggle)
+            try:
+                w.configure(cursor="hand2")
+            except Exception:
+                pass
+
+        if not state["collapsed"]:
+            body.pack(fill="x", padx=0, pady=0)
+
+        return card, body
+
     def _build_mic_recorder_card(self, parent):
         """Build the microphone recording section for voice cloning."""
         import time as _time
@@ -3729,13 +3780,10 @@ class KoKoFishUI:
         self._mic_preview_paused = False
         self._mic_timer_id       = None
 
-        # ── Card ────────────────────────────────────────────────────────
-        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
-        card.pack(fill="x", padx=15, pady=(0, 8))
-
-        ctk.CTkLabel(card, text=t("VOICE_LAB_RECORD_HEADER"),
-                     font=(FONT_FAMILY, 13, "bold"),
-                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=14, pady=(10, 6))
+        # ── Card (collapsible) ──────────────────────────────────────────
+        _outer, card = self._build_collapsible_card(
+            parent, t("VOICE_LAB_RECORD_HEADER"), start_collapsed=False,
+        )
 
         # ── Mic selector ─────────────────────────────────────────────────
         mic_row = ctk.CTkFrame(card, fg_color="transparent")
@@ -4113,6 +4161,392 @@ class KoKoFishUI:
             ))
             threading.Thread(target=_transcribe_and_clone, daemon=True, name="MicClone").start()
 
+    # ------------------------------------------------------------------
+    # Upload & Clip card — drop/browse an audio file, pick a ≤30s window,
+    # clone a voice from the clipped region.
+    # ------------------------------------------------------------------
+    def _build_upload_clip_card(self, parent):
+        import time as _time
+
+        MAX_CLIP_SEC = 30.0
+
+        # Instance state
+        self._clip_audio = None          # np.ndarray (mono float32)
+        self._clip_sr = 44100            # sample rate
+        self._clip_path = None           # source file path
+        self._clip_start = 0.0           # selected window start (seconds)
+        self._clip_end = 0.0             # selected window end (seconds)
+        self._clip_duration = 0.0        # total audio duration
+        self._clip_drag = None           # "start" | "end" | None
+        self._clip_preview_stream = None
+
+        _outer, body = self._build_collapsible_card(
+            parent, t("VOICE_LAB_UPLOAD_HEADER"), start_collapsed=True,
+        )
+
+        # File row
+        file_row = ctk.CTkFrame(body, fg_color="transparent")
+        file_row.pack(fill="x", padx=14, pady=(2, 6))
+
+        file_lbl = ctk.CTkLabel(
+            file_row, text=t("VOICE_LAB_UPLOAD_NO_FILE"),
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+            anchor="w",
+        )
+        file_lbl.pack(side="left", fill="x", expand=True)
+
+        def _browse():
+            from tkinter.filedialog import askopenfilename
+            path = askopenfilename(
+                parent=self.root,
+                title=t("VOICE_LAB_UPLOAD_BROWSE"),
+                filetypes=[
+                    ("Audio files", "*.wav *.mp3 *.flac *.m4a *.ogg"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if path:
+                _load_file(path)
+
+        ctk.CTkButton(
+            file_row, text=t("VOICE_LAB_UPLOAD_BROWSE"),
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 11, "bold"), height=28, width=100,
+            corner_radius=6, command=_browse,
+        ).pack(side="right")
+
+        # Waveform + range slider canvas
+        canvas = tk.Canvas(
+            body, height=110, bg=COLORS["bg_card"],
+            highlightthickness=0, bd=0,
+        )
+        canvas.pack(fill="x", padx=14, pady=(4, 4))
+
+        time_lbl = ctk.CTkLabel(
+            body, text="—", font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_muted"], anchor="w",
+        )
+        time_lbl.pack(fill="x", padx=14)
+
+        # Controls row
+        ctrl_row = ctk.CTkFrame(body, fg_color="transparent")
+        ctrl_row.pack(fill="x", padx=14, pady=(6, 12))
+
+        btn_preview_clip = ctk.CTkButton(
+            ctrl_row, text="▶ " + t("VOICE_LAB_UPLOAD_BTN_PREVIEW"),
+            width=120, height=30, corner_radius=6,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            font=(FONT_FAMILY, 11), state="disabled",
+            command=lambda: _preview_clip(),
+        )
+        btn_preview_clip.pack(side="left", padx=(0, 8))
+
+        btn_clone_clip = ctk.CTkButton(
+            ctrl_row, text=t("VOICE_LAB_UPLOAD_BTN_CLONE"),
+            width=150, height=30, corner_radius=6,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 12, "bold"), state="disabled",
+            command=lambda: _clone_clip(),
+        )
+        btn_clone_clip.pack(side="right")
+
+        # ── Drawing helpers ──────────────────────────────────────────────
+        WAVE_Y = 10
+        WAVE_H = 60
+        BAR_Y = WAVE_Y + WAVE_H + 8
+        BAR_H = 10
+        HANDLE_W = 7
+
+        def _t_to_x(sec: float) -> float:
+            w = canvas.winfo_width() or 560
+            if self._clip_duration <= 0:
+                return 0
+            return (sec / self._clip_duration) * w
+
+        def _x_to_t(x: float) -> float:
+            w = canvas.winfo_width() or 560
+            if w <= 0:
+                return 0.0
+            return max(0.0, min(self._clip_duration,
+                                (x / w) * self._clip_duration))
+
+        def _format_t(sec: float) -> str:
+            return f"{int(sec // 60)}:{sec % 60:05.2f}"
+
+        def _draw():
+            canvas.delete("all")
+            w = canvas.winfo_width() or 560
+            # Waveform
+            canvas.create_rectangle(0, WAVE_Y, w, WAVE_Y + WAVE_H,
+                                    fill="#1a1a30", outline="")
+            if self._clip_audio is not None and len(self._clip_audio) > 0:
+                n = len(self._clip_audio)
+                bins = max(1, min(w, 600))
+                step = max(1, n // bins)
+                mid = WAVE_Y + WAVE_H / 2
+                for i in range(bins):
+                    s = i * step
+                    seg = self._clip_audio[s:s + step]
+                    if len(seg) == 0:
+                        continue
+                    amp = float(np.max(np.abs(seg)))
+                    h = amp * (WAVE_H / 2 - 1)
+                    x = (i / bins) * w
+                    canvas.create_line(x, mid - h, x, mid + h,
+                                       fill=COLORS["text_muted"], width=1)
+
+                # Selected-window overlay
+                sx = _t_to_x(self._clip_start)
+                ex = _t_to_x(self._clip_end)
+                canvas.create_rectangle(sx, WAVE_Y, ex, WAVE_Y + WAVE_H,
+                                        fill=COLORS["accent"], outline="",
+                                        stipple="gray25")
+
+            # Range bar
+            canvas.create_rectangle(0, BAR_Y, w, BAR_Y + BAR_H,
+                                    fill="#2a2a4a", outline="")
+            if self._clip_duration > 0:
+                sx = _t_to_x(self._clip_start)
+                ex = _t_to_x(self._clip_end)
+                canvas.create_rectangle(sx, BAR_Y, ex, BAR_Y + BAR_H,
+                                        fill=COLORS["accent"], outline="")
+                # Handles
+                for hx in (sx, ex):
+                    canvas.create_rectangle(
+                        hx - HANDLE_W / 2, BAR_Y - 4,
+                        hx + HANDLE_W / 2, BAR_Y + BAR_H + 4,
+                        fill=COLORS["accent_hover"],
+                        outline=COLORS["text_primary"], width=1,
+                    )
+
+        def _update_time_label():
+            if self._clip_duration <= 0:
+                time_lbl.configure(text="—")
+                return
+            sel = max(0.0, self._clip_end - self._clip_start)
+            time_lbl.configure(
+                text=f"{_format_t(self._clip_start)}  →  {_format_t(self._clip_end)}   "
+                     f"({sel:.2f}s / {MAX_CLIP_SEC:.0f}s max — of {_format_t(self._clip_duration)})"
+            )
+
+        def _set_window(start: float, end: float):
+            start = max(0.0, min(self._clip_duration, start))
+            end   = max(0.0, min(self._clip_duration, end))
+            if end < start:
+                start, end = end, start
+            # Enforce max window
+            if (end - start) > MAX_CLIP_SEC:
+                end = start + MAX_CLIP_SEC
+                if end > self._clip_duration:
+                    end = self._clip_duration
+                    start = max(0.0, end - MAX_CLIP_SEC)
+            self._clip_start = start
+            self._clip_end = end
+            _draw()
+            _update_time_label()
+
+        def _load_file(path: str):
+            try:
+                import soundfile as _sf
+                data, sr = _sf.read(path, dtype="float32", always_2d=False)
+                if data.ndim > 1:
+                    data = data.mean(axis=1).astype(np.float32)
+                self._clip_audio = data
+                self._clip_sr = sr
+                self._clip_path = path
+                self._clip_duration = len(data) / float(sr)
+            except Exception as exc:
+                logger.error("Clip load failed: %s", exc, exc_info=True)
+                messagebox.showerror(t("COMMON_ERROR"), str(exc), parent=self.root)
+                return
+            end = min(MAX_CLIP_SEC, self._clip_duration)
+            _set_window(0.0, end)
+            file_lbl.configure(
+                text=f"{os.path.basename(path)}  ({_format_t(self._clip_duration)})",
+                text_color=COLORS["text_primary"],
+            )
+            btn_preview_clip.configure(state="normal")
+            btn_clone_clip.configure(state="normal")
+
+        # ── Canvas interaction ──────────────────────────────────────────
+        def _hit_test(x: float) -> str:
+            if self._clip_duration <= 0:
+                return None
+            sx = _t_to_x(self._clip_start)
+            ex = _t_to_x(self._clip_end)
+            if abs(x - sx) <= HANDLE_W + 3:
+                return "start"
+            if abs(x - ex) <= HANDLE_W + 3:
+                return "end"
+            if sx < x < ex:
+                return "move"
+            return None
+
+        def _on_press(e):
+            self._clip_drag = _hit_test(e.x)
+            if self._clip_drag == "move":
+                self._clip_drag_anchor = (e.x, self._clip_start, self._clip_end)
+
+        def _on_drag(e):
+            if not self._clip_drag:
+                return
+            if self._clip_drag == "start":
+                _set_window(_x_to_t(e.x), self._clip_end)
+            elif self._clip_drag == "end":
+                _set_window(self._clip_start, _x_to_t(e.x))
+            elif self._clip_drag == "move":
+                ax, s0, e0 = self._clip_drag_anchor
+                delta_t = _x_to_t(e.x) - _x_to_t(ax)
+                _set_window(s0 + delta_t, e0 + delta_t)
+
+        def _on_release(_e):
+            self._clip_drag = None
+
+        canvas.bind("<Button-1>", _on_press)
+        canvas.bind("<B1-Motion>", _on_drag)
+        canvas.bind("<ButtonRelease-1>", _on_release)
+        canvas.bind("<Configure>", lambda e: _draw())
+
+        # Drag-drop onto canvas / file label
+        try:
+            self._wire_file_dnd(canvas, _load_file)
+            self._wire_file_dnd(file_lbl, _load_file)
+        except Exception:
+            pass  # DnD optional
+
+        _draw()
+
+        # ── Clip preview / clone ────────────────────────────────────────
+        def _stop_clip_preview():
+            if self._clip_preview_stream:
+                try:
+                    self._clip_preview_stream.stop()
+                    self._clip_preview_stream.close()
+                except Exception:
+                    pass
+                self._clip_preview_stream = None
+
+        def _clipped_slice():
+            if self._clip_audio is None:
+                return None
+            i0 = int(self._clip_start * self._clip_sr)
+            i1 = int(self._clip_end   * self._clip_sr)
+            if i1 <= i0:
+                return None
+            return self._clip_audio[i0:i1].astype(np.float32)
+
+        def _preview_clip():
+            import sounddevice as _sd
+            seg = _clipped_slice()
+            if seg is None or len(seg) == 0:
+                return
+            _stop_clip_preview()
+            try:
+                _sd.play(seg, self._clip_sr)
+            except Exception as exc:
+                logger.warning("Clip preview failed: %s", exc)
+
+        def _clone_clip():
+            seg = _clipped_slice()
+            if seg is None or len(seg) == 0:
+                messagebox.showwarning(
+                    t("VOICE_LAB_BTN_CLONE"),
+                    t("VOICE_LAB_MSG_CLONE_NO_RECORDING"), parent=self.root,
+                )
+                return
+            dialog = ctk.CTkInputDialog(
+                text=t("VOICE_LAB_DIALOG_CLONE_PROMPT"),
+                title=t("VOICE_LAB_DIALOG_CLONE_TITLE"),
+            )
+            name = dialog.get_input()
+            if not name or not name.strip():
+                return
+            name = name.strip()
+            if self.voices.voice_exists(name):
+                messagebox.showwarning(
+                    "KoKoFish",
+                    t("VOICE_LAB_MSG_CLONE_NAME_EXISTS", name=name),
+                    parent=self.root,
+                )
+                return
+
+            # Write clipped slice to temp wav
+            import soundfile as _sf
+            os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
+            clip_path = os.path.join(
+                AUDIO_TEMP_DIR, f"clip_{int(_time.time())}.wav",
+            )
+            try:
+                _sf.write(clip_path, seg, self._clip_sr)
+            except Exception as exc:
+                messagebox.showerror(t("COMMON_ERROR"), str(exc), parent=self.root)
+                return
+
+            def _do_clone(transcript: str):
+                try:
+                    tts = self.tts if self.tts and self.tts.is_loaded else None
+                    self.voices.clone_voice(
+                        name=name,
+                        reference_wav_path=clip_path,
+                        tts_engine=tts,
+                        prompt_text=transcript,
+                    )
+                    self.root.after(0, self._refresh_voice_grid)
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "KoKoFish",
+                        t("VOICE_LAB_MSG_CLONE_SUCCESS", name=name),
+                    ))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: messagebox.showerror(
+                        "KoKoFish", t("VOICE_LAB_MSG_CLONE_FAILED", error=e),
+                    ))
+
+            def _transcribe_and_clone():
+                transcript_result = [None]
+                done_evt = threading.Event()
+
+                def _on_transcript(text, _info):
+                    transcript_result[0] = text.strip()
+                    done_evt.set()
+
+                def _on_stt_error(_exc):
+                    transcript_result[0] = ""
+                    done_evt.set()
+
+                def _on_stt_ready():
+                    self.stt.transcribe(
+                        audio_path=clip_path,
+                        on_complete=_on_transcript,
+                        on_error=_on_stt_error,
+                    )
+                    done_evt.wait(timeout=120)
+                    _do_clone(transcript_result[0] or "")
+
+                if self.stt.is_loaded:
+                    _on_stt_ready()
+                else:
+                    self.stt.load_model(on_ready=_on_stt_ready,
+                                        on_error=_on_stt_error)
+                    done_evt.wait(timeout=180)
+
+            self.root.after(0, lambda: self.tts_status.configure(
+                text=t("VOICE_LAB_STATUS_TRANSCRIBING_REC"),
+            ))
+            threading.Thread(
+                target=_transcribe_and_clone, daemon=True, name="ClipClone",
+            ).start()
+
+    def _wire_file_dnd(self, widget, callback):
+        """Optional TkinterDnD drag-and-drop wiring. Silently skip if unavailable."""
+        try:
+            widget.drop_target_register("DND_Files")
+            widget.dnd_bind("<<Drop>>", lambda e: callback(
+                e.data.strip("{}").split("}")[0].strip("{") if e.data else ""
+            ))
+        except Exception:
+            pass
+
     def _refresh_voice_grid(self):
         """Rebuild the voice cards grid."""
         for widget in self.voice_grid_frame.winfo_children():
@@ -4130,8 +4564,8 @@ class KoKoFishUI:
             ).pack(pady=40)
             return
 
-        # Grid layout
-        cols = 3
+        # Grid layout — compact tiles
+        cols = 5
         for idx, name in enumerate(voice_list):
             row = idx // cols
             col = idx % cols
@@ -4141,54 +4575,46 @@ class KoKoFishUI:
                 fg_color=COLORS["bg_card"],
                 border_color=COLORS["border"],
                 border_width=1,
-                corner_radius=10,
-                width=220,
-                height=120,
+                corner_radius=8,
+                width=150,
+                height=74,
             )
-            card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+            card.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
             card.grid_propagate(False)
 
-            # Voice icon + name
-            ctk.CTkLabel(
-                card,
-                text="🎤",
-                font=(FONT_FAMILY, 28),
-            ).pack(pady=(12, 2))
+            # Top row: icon + name
+            top = ctk.CTkFrame(card, fg_color="transparent")
+            top.pack(fill="x", padx=6, pady=(6, 2))
 
             ctk.CTkLabel(
-                card,
-                text=name,
-                font=(FONT_FAMILY, 13, "bold"),
+                top, text="🎤", font=(FONT_FAMILY, 16), width=20,
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                top,
+                text=(name if len(name) <= 14 else name[:13] + "…"),
+                font=(FONT_FAMILY, 11, "bold"),
                 text_color=COLORS["text_primary"],
-            ).pack()
+                anchor="w",
+            ).pack(side="left", padx=(4, 0), fill="x", expand=True)
 
-            # Action buttons
+            # Bottom row: actions
             btn_row = ctk.CTkFrame(card, fg_color="transparent")
-            btn_row.pack(pady=(5, 8))
+            btn_row.pack(pady=(2, 6))
 
             ctk.CTkButton(
-                btn_row,
-                text="▶",
-                width=35,
-                height=28,
-                corner_radius=6,
-                fg_color=COLORS["success"],
-                hover_color="#05b890",
-                font=(FONT_FAMILY, 15),
+                btn_row, text="▶", width=28, height=22, corner_radius=5,
+                fg_color=COLORS["success"], hover_color="#05b890",
+                font=(FONT_FAMILY, 12),
                 command=lambda n=name: self._voice_test(n),
-            ).pack(side="left", padx=3)
+            ).pack(side="left", padx=2)
 
             ctk.CTkButton(
-                btn_row,
-                text="🗑",
-                width=35,
-                height=28,
-                corner_radius=6,
-                fg_color=COLORS["danger"],
-                hover_color="#d43d62",
-                font=(FONT_FAMILY, 13),
+                btn_row, text="🗑", width=28, height=22, corner_radius=5,
+                fg_color=COLORS["danger"], hover_color="#d43d62",
+                font=(FONT_FAMILY, 11),
                 command=lambda n=name: self._voice_delete(n),
-            ).pack(side="left", padx=3)
+            ).pack(side="left", padx=2)
 
         # Configure grid weights
         for c in range(cols):
@@ -4236,13 +4662,22 @@ class KoKoFishUI:
                     return [""] + list(KOKORO_VOICES.keys())
                 except Exception:
                     return [""]
-            else:
-                try:
-                    from voice_manager import VoiceManager
-                    vm = VoiceManager(engine)
-                    return [""] + vm.list_voices()
-                except Exception:
-                    return [""]
+            # For voice-cloning engines (VoxCPM 0.5B/2B, OmniVoice) read the
+            # per-engine profile dir under <app>/voices/<engine>/. If the
+            # current engine matches the active VoiceManager, reuse it.
+            try:
+                if getattr(self, "voices", None) and engine == getattr(
+                    self.settings, "engine", ""
+                ):
+                    return [""] + self.voices.list_voices()
+                from voice_manager import VoiceManager
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+                voices_root = os.path.join(app_dir, "voices", engine)
+                vm = VoiceManager(voices_root)
+                return [""] + vm.list_voices()
+            except Exception as exc:
+                logger.warning("Script Lab voice list failed for %s: %s", engine, exc)
+                return [""]
 
         def _voice_for_character(char_name: str):
             if char_name == "Narrator":

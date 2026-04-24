@@ -239,3 +239,108 @@
 [2026-04-24 06:23:05] __main__: setup_done=True  venv_python=True
 [2026-04-24 06:23:05] Setup complete — launching main app
 [2026-04-24 06:23:05] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 07:06:38] ============================================================
+[2026-04-24 07:06:38] KoKoFish launcher started
+[2026-04-24 07:06:38] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 07:06:38] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 07:06:38] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 07:06:38] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 07:06:38] Frozen    : True
+[2026-04-24 07:06:38] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 07:06:38] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 07:06:38] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 07:06:38] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 07:06:38] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 07:06:38] __main__: setup_done=True  venv_python=True
+[2026-04-24 07:06:38] Setup complete — launching main app
+[2026-04-24 07:06:38] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 07:43:54] ============================================================
+[2026-04-24 07:43:54] KoKoFish launcher started
+[2026-04-24 07:43:54] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 07:43:54] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 07:43:54] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 07:43:54] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 07:43:54] Frozen    : True
+[2026-04-24 07:43:54] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 07:43:54] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 07:43:54] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 07:43:54] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 07:43:54] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 07:43:54] __main__: setup_done=True  venv_python=True
+[2026-04-24 07:43:54] Setup complete — launching main app
+[2026-04-24 07:43:54] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 07:56:00] ============================================================
+[2026-04-24 07:56:00] KoKoFish launcher started
+[2026-04-24 07:56:00] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 07:56:00] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 07:56:00] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 07:56:00] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 07:56:00] Frozen    : True
+[2026-04-24 07:56:00] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 07:56:00] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 07:56:00] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 07:56:00] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 07:56:00] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 07:56:00] __main__: setup_done=True  venv_python=True
+[2026-04-24 07:56:00] Setup complete — launching main app
+[2026-04-24 07:56:00] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 08:11:19] ============================================================
+[2026-04-24 08:11:19] KoKoFish launcher started
+[2026-04-24 08:11:19] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 08:11:19] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 08:11:19] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 08:11:19] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 08:11:19] Frozen    : True
+[2026-04-24 08:11:19] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 08:11:19] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 08:11:19] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 08:11:19] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 08:11:19] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 08:11:19] __main__: setup_done=True  venv_python=True
+[2026-04-24 08:11:19] Setup complete — launching main app
+[2026-04-24 08:11:19] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 15:16:40] ============================================================
+[2026-04-24 15:16:40] KoKoFish launcher started
+[2026-04-24 15:16:40] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 15:16:40] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 15:16:40] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 15:16:40] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 15:16:40] Frozen    : True
+[2026-04-24 15:16:40] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 15:16:40] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 15:16:40] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 15:16:40] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 15:16:40] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 15:16:40] __main__: setup_done=True  venv_python=True
+[2026-04-24 15:16:40] Setup complete — launching main app
+[2026-04-24 15:16:40] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 16:52:32] ============================================================
+[2026-04-24 16:52:32] KoKoFish launcher started
+[2026-04-24 16:52:32] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 16:52:32] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 16:52:32] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 16:52:32] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 16:52:32] Frozen    : True
+[2026-04-24 16:52:32] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 16:52:32] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 16:52:32] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 16:52:32] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 16:52:32] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 16:52:32] __main__: setup_done=True  venv_python=True
+[2026-04-24 16:52:32] Setup complete — launching main app
+[2026-04-24 16:52:32] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py
+[2026-04-24 16:52:32] ============================================================
+[2026-04-24 16:52:32] KoKoFish launcher started
+[2026-04-24 16:52:32] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-24 16:52:32] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-24 16:52:32] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-24 16:52:32] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-24 16:52:32] Frozen    : True
+[2026-04-24 16:52:32] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-24 16:52:32] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-24 16:52:32] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-24 16:52:32] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-24 16:52:32] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-24 16:52:32] __main__: setup_done=True  venv_python=True
+[2026-04-24 16:52:32] Setup complete — launching main app
+[2026-04-24 16:52:32] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py

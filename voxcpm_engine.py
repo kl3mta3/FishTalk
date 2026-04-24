@@ -293,7 +293,137 @@ class VoxCPMEngine:
 
                 with self._lock:
                     _model_ref = self._model
-                audio_np = _model_ref.generate(**gen_kwargs)
+
+                # --- Long-text chunking ---------------------------------
+                # A single VoxCPM call materialises the whole audio tensor on
+                # the GPU. At ~1500+ chars (≈ a minute of 48 kHz audio) the
+                # activations start to blow VRAM. Split at sentence
+                # boundaries only when the input is long — short texts keep
+                # the original single-shot path so quality is untouched.
+                CHUNK_CHAR_BUDGET = 1500
+
+                def _split_sentences(s: str):
+                    # Greedy pack sentences (split on .!? followed by space/EOL)
+                    # into chunks up to CHUNK_CHAR_BUDGET. Falls back to
+                    # whitespace splits if a single "sentence" is over-budget.
+                    import re as _re
+                    parts = _re.split(r"(?<=[.!?])\s+", s.strip())
+                    out, buf = [], ""
+                    for p in parts:
+                        if not p:
+                            continue
+                        if len(p) > CHUNK_CHAR_BUDGET:
+                            if buf:
+                                out.append(buf); buf = ""
+                            words = p.split()
+                            tmp = ""
+                            for w in words:
+                                if len(tmp) + 1 + len(w) > CHUNK_CHAR_BUDGET:
+                                    out.append(tmp.strip()); tmp = w
+                                else:
+                                    tmp = f"{tmp} {w}" if tmp else w
+                            if tmp:
+                                buf = tmp
+                            continue
+                        if len(buf) + 1 + len(p) > CHUNK_CHAR_BUDGET and buf:
+                            out.append(buf); buf = p
+                        else:
+                            buf = f"{buf} {p}" if buf else p
+                    if buf:
+                        out.append(buf)
+                    return out
+
+                if len(text_norm) <= CHUNK_CHAR_BUDGET:
+                    audio_np = _model_ref.generate(**gen_kwargs)
+                else:
+                    # Multi-chunk path: build the prompt cache ONCE and reuse
+                    # it across every chunk. The high-level .generate() wrapper
+                    # would rebuild it per call (CPU-bound reference encode),
+                    # which is the main reason long books were 10 min/chunk.
+                    chunks = _split_sentences(text_norm)
+                    logger.info(
+                        "VoxCPM long-text: %d chars → %d chunks (shared prompt cache)",
+                        len(text_norm), len(chunks),
+                    )
+
+                    import torch as _torch
+
+                    tts_inner = _model_ref.tts_model
+
+                    # Build prompt cache once (or None for plain TTS).
+                    has_prompt_pair = bool(has_ref and prompt_text)
+                    if is_v2 and (has_prompt_pair or has_ref):
+                        shared_cache = tts_inner.build_prompt_cache(
+                            prompt_text=(prompt_text if has_prompt_pair else None),
+                            prompt_wav_path=(reference_wav if has_prompt_pair else None),
+                            reference_wav_path=(reference_wav if has_ref else None),
+                        )
+                    elif has_prompt_pair:
+                        shared_cache = tts_inner.build_prompt_cache(
+                            prompt_text=prompt_text,
+                            prompt_wav_path=reference_wav,
+                        )
+                    else:
+                        shared_cache = None
+
+                    def _autocast_ctx():
+                        # bf16 autocast ~doubles tensor-core throughput on
+                        # Ampere+ (5060 Ti is sm_120, fully supported). Safe
+                        # to wrap generation; weights stay fp32 so nothing
+                        # breaks downstream.
+                        if _torch.cuda.is_available():
+                            return _torch.autocast(
+                                device_type="cuda",
+                                dtype=_torch.bfloat16,
+                                enabled=True,
+                            )
+                        class _NullCtx:
+                            def __enter__(self): return None
+                            def __exit__(self, *a): return False
+                        return _NullCtx()
+
+                    def _run_chunk(chunk_text: str):
+                        gen = tts_inner._generate_with_prompt_cache(
+                            target_text=chunk_text,
+                            prompt_cache=shared_cache,
+                            cfg_value=float(cfg_value),
+                            inference_timesteps=int(inference_timesteps),
+                            streaming=False,
+                        )
+                        # Non-streaming: one tuple (wav, tokens, feats).
+                        for wav, _tok, _feat in gen:
+                            return wav.squeeze(0).float().cpu().numpy()
+                        return np.zeros(0, dtype=np.float32)
+
+                    pieces = []
+                    for i, chunk in enumerate(chunks):
+                        if self._cancel_event.is_set():
+                            return
+                        if on_progress:
+                            on_progress(
+                                f"Generating chunk {i + 1}/{len(chunks)}…",
+                                0.3 + 0.65 * (i / max(1, len(chunks))),
+                            )
+                        try:
+                            with _autocast_ctx():
+                                part = _run_chunk(chunk)
+                        except Exception as _exc:
+                            try:
+                                _torch.cuda.empty_cache()
+                            except Exception:
+                                pass
+                            logger.warning(
+                                "Chunk %d retry after error: %s", i + 1, _exc,
+                            )
+                            with _autocast_ctx():
+                                part = _run_chunk(chunk)
+                        pieces.append(np.asarray(part, dtype=np.float32))
+                        try:
+                            _torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                    audio_np = np.concatenate(pieces, axis=0) if pieces \
+                        else np.zeros(0, dtype=np.float32)
 
                 if self._cancel_event.is_set():
                     return
