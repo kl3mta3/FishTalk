@@ -164,6 +164,12 @@ class OmniVoiceEngine:
         speed: float = 1.0,
         cadence: float = 0.0,
         output_path: Optional[str] = None,
+        cfg_value: float = 2.0,
+        inference_timesteps: int = 32,
+        duration: Optional[float] = None,
+        denoise: bool = True,
+        preprocess_prompt: bool = True,
+        postprocess_output: bool = True,
         on_progress: Optional[Callable[[str, float], None]] = None,
         on_chunk: Optional[Callable] = None,
         on_complete: Optional[Callable[[str], None]] = None,
@@ -227,11 +233,22 @@ class OmniVoiceEngine:
                 if on_progress:
                     on_progress("Generating speech…", 0.3)
 
-                audio = model_ref.generate(
+                # OmniVoice natively supports speed/duration/CFG/steps/etc.
+                # Pass them through rather than post-processing with resample.
+                _gen_kwargs = dict(
                     text=text,
                     ref_audio=reference_wav,
                     ref_text=prompt_text,
+                    speed=float(speed),
+                    num_step=int(inference_timesteps),
+                    guidance_scale=float(cfg_value),
+                    denoise=bool(denoise),
+                    preprocess_prompt=bool(preprocess_prompt),
+                    postprocess_output=bool(postprocess_output),
                 )
+                if duration is not None and float(duration) > 0:
+                    _gen_kwargs["duration"] = float(duration)
+                audio = model_ref.generate(**_gen_kwargs)
 
                 if self._cancel_event.is_set():
                     return
@@ -239,7 +256,8 @@ class OmniVoiceEngine:
                 audio_np = np.asarray(audio[0], dtype=np.float32)
                 sample_rate = OMNIVOICE_SAMPLE_RATE
 
-                if abs(speed - 1.0) > 0.02:
+                # Speed is already applied by the model; skip post-resample.
+                if False and abs(speed - 1.0) > 0.02:
                     import torchaudio as _ta
                     _t = torch.from_numpy(audio_np).unsqueeze(0)
                     _t = _ta.functional.resample(

@@ -41,6 +41,50 @@ else:
     # Serialize Inductor's worker pool so it spawns one compile subprocess
     # at a time instead of flooding the screen with cmd windows.
     os.environ.setdefault("TORCHINDUCTOR_COMPILE_THREADS", "1")
+    # Disable CUDAGraph trees. They require thread-local state initialized
+    # on the same thread that runs inference; our generate worker is a
+    # separate thread, which triggers `assert _is_key_in_tls(...)` in
+    # torch._inductor.cudagraph_trees. Keep the Inductor kernel speedup,
+    # skip the graph-capture layer.
+    os.environ["TORCHINDUCTOR_CUDAGRAPHS"] = "0"
+
+    # The env var above is ignored when a caller (e.g. VoxCPM's internal
+    # warm-up) passes mode="reduce-overhead" or mode="default" to
+    # torch.compile — those modes force cudagraphs=True at the call site,
+    # overriding the config. Patch torch.compile and torch._inductor.config
+    # so every compile call in the process gets cudagraphs stripped.
+    def _install_cudagraph_killswitch():
+        try:
+            import torch
+            import torch._inductor.config as _ic
+            try:
+                _ic.triton.cudagraphs = False
+            except Exception:
+                pass
+
+            _orig_compile = torch.compile
+
+            def _compile_no_cudagraphs(*args, **kwargs):
+                # Force options.triton.cudagraphs=False on every call.
+                opts = dict(kwargs.get("options") or {})
+                opts["triton.cudagraphs"] = False
+                kwargs["options"] = opts
+                # reduce-overhead hard-requires cudagraphs; downgrade to default.
+                if kwargs.get("mode") == "reduce-overhead":
+                    kwargs["mode"] = "default"
+                return _orig_compile(*args, **kwargs)
+
+            torch.compile = _compile_no_cudagraphs
+        except Exception:
+            # torch not installed yet — engine will retry when it imports torch.
+            pass
+
+    # Install lazily after torch is available. Import hook via sys.meta_path
+    # is overkill; instead, run on first torch import by stashing a flag and
+    # letting the engine call it. Simpler: call immediately — torch is
+    # imported via the engine loader, and this function no-ops if torch
+    # isn't installed yet.
+    _install_cudagraph_killswitch()
     # On Windows, Inductor/Triton spawn cl.exe, ninja, and Python workers
     # via subprocess.Popen — each flashes a console window. Monkey-patch
     # Popen to inject CREATE_NO_WINDOW before torch is imported so every

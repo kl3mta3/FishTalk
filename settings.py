@@ -34,6 +34,8 @@ DEFAULTS = {
     "speed": 1.0,
     "volume": 80,
     "cadence": 50,
+    "cfg_value": 2.0,
+    "inference_steps": 32,
     "window_geometry": "1280x800",
     # CPU thread limit (0 = use all cores)
     "cpu_threads": 0,

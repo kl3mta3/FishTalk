@@ -18377,6 +18377,18 @@
     },
     "SPEECH_LAB_BTN_ADD_TEXT": {
       "en": "Add to Playlist"
+    },
+    "SPEECH_LAB_CFG_LABEL": {
+      "en": "CFG: {value}"
+    },
+    "SPEECH_LAB_STEPS_LABEL": {
+      "en": "Steps: {value}"
+    },
+    "SPEECH_LAB_TOOLTIP_CFG": {
+      "en": "Guidance scale — higher sticks closer to the reference voice / prompt; lower is freer."
+    },
+    "SPEECH_LAB_TOOLTIP_STEPS": {
+      "en": "Inference/diffusion steps — more steps = cleaner audio, linearly slower."
     }
   }
 }

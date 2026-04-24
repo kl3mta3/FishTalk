@@ -83,6 +83,36 @@ class VoxCPMEngine:
                     torch.backends.cudnn.benchmark = True
             except Exception as _e:
                 logger.debug("TF32/cuDNN tuning skipped: %s", _e)
+
+            # torchaudio 2.11+ dispatches `load()` through torchcodec, which
+            # requires FFmpeg DLLs on PATH; VoxCPM 0.5B's `build_prompt_cache`
+            # calls `torchaudio.load(prompt_wav_path)` and crashes when those
+            # DLLs aren't present. Patch torchaudio.load with a soundfile
+            # fallback — safe for all .wav/.flac reference audio we use.
+            try:
+                import torchaudio as _ta
+                _orig_ta_load = _ta.load
+
+                def _ta_load_sf_fallback(uri, *a, **kw):
+                    try:
+                        return _orig_ta_load(uri, *a, **kw)
+                    except Exception as _ta_exc:
+                        logger.warning(
+                            "torchaudio.load failed (%s); using soundfile fallback for %s",
+                            type(_ta_exc).__name__, uri,
+                        )
+                        import soundfile as _sf
+                        import torch as _torch
+                        import numpy as _np
+                        data, sr = _sf.read(str(uri), dtype="float32", always_2d=True)
+                        # soundfile → [frames, channels]; torchaudio expects [channels, frames].
+                        tensor = _torch.from_numpy(_np.ascontiguousarray(data.T))
+                        return tensor, sr
+
+                _ta.load = _ta_load_sf_fallback
+            except Exception as _ta_patch_exc:
+                logger.debug("torchaudio.load patch skipped: %s", _ta_patch_exc)
+
             from voxcpm import VoxCPM
 
             try:

@@ -740,32 +740,106 @@ class KoKoFishUI:
         self._make_tooltip(self.vol_label,  t("SPEECH_LAB_TOOLTIP_VOLUME"))
         self._make_tooltip(self.vol_slider, t("SPEECH_LAB_TOOLTIP_VOLUME"))
 
-        # Cadence slider
-        cad_frame = ctk.CTkFrame(controls, fg_color="transparent")
-        cad_frame.pack(side="left", padx=15)
+        _engine_now = str(getattr(self.settings, "engine", "") or "").lower()
+        _is_kokoro = _engine_now == "kokoro"
+        _is_voxcpm = _engine_now in ("voxcpm_05b", "voxcpm_2b")
+        _is_omni   = _engine_now == "omnivoice"
 
-        self.cad_label = ctk.CTkLabel(
-            cad_frame,
-            text=t("SPEECH_LAB_CADENCE_LABEL", value=self.settings.cadence),
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_secondary"],
-        )
-        self.cad_label.pack(anchor="w")
+        # Cadence slider — Kokoro only (no-op on VoxCPM/OmniVoice).
+        if _is_kokoro:
+            cad_frame = ctk.CTkFrame(controls, fg_color="transparent")
+            cad_frame.pack(side="left", padx=15)
 
-        self.cad_slider = ctk.CTkSlider(
-            cad_frame,
-            from_=0,
-            to=100,
-            number_of_steps=100,
-            width=140,
-            progress_color=COLORS["warning"],
-            button_color=COLORS["warning"],
-        )
-        self.cad_slider.set(self.settings.cadence)
-        self.cad_slider.configure(command=self._on_cadence_change)
-        self.cad_slider.pack()
-        self._make_tooltip(self.cad_label,  t("SPEECH_LAB_TOOLTIP_CADENCE"))
-        self._make_tooltip(self.cad_slider, t("SPEECH_LAB_TOOLTIP_CADENCE"))
+            self.cad_label = ctk.CTkLabel(
+                cad_frame,
+                text=t("SPEECH_LAB_CADENCE_LABEL", value=self.settings.cadence),
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_secondary"],
+            )
+            self.cad_label.pack(anchor="w")
+
+            self.cad_slider = ctk.CTkSlider(
+                cad_frame,
+                from_=0,
+                to=100,
+                number_of_steps=100,
+                width=140,
+                progress_color=COLORS["warning"],
+                button_color=COLORS["warning"],
+            )
+            self.cad_slider.set(self.settings.cadence)
+            self.cad_slider.configure(command=self._on_cadence_change)
+            self.cad_slider.pack()
+            self._make_tooltip(self.cad_label,  t("SPEECH_LAB_TOOLTIP_CADENCE"))
+            self._make_tooltip(self.cad_slider, t("SPEECH_LAB_TOOLTIP_CADENCE"))
+
+        # CFG + Inference Steps — VoxCPM and OmniVoice only.
+        if _is_voxcpm or _is_omni:
+            cfg_frame = ctk.CTkFrame(controls, fg_color="transparent")
+            cfg_frame.pack(side="left", padx=15)
+            _cfg_default = float(getattr(self.settings, "cfg_value", 2.0))
+            self.cfg_label = ctk.CTkLabel(
+                cfg_frame,
+                text=t("SPEECH_LAB_CFG_LABEL", value=f"{_cfg_default:.1f}"),
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_secondary"],
+            )
+            self.cfg_label.pack(anchor="w")
+            _cfg_max = 4.0 if _is_omni else 3.0
+            self.cfg_slider = ctk.CTkSlider(
+                cfg_frame,
+                from_=0 if _is_omni else 1.0,
+                to=_cfg_max,
+                number_of_steps=int(_cfg_max * 10),
+                width=140,
+                progress_color=COLORS["accent"],
+                button_color=COLORS["accent_light"],
+            )
+            self.cfg_slider.set(max(1.0, min(_cfg_max, _cfg_default)))
+
+            def _on_cfg_change(v):
+                self.settings.cfg_value = float(v)
+                self.cfg_label.configure(
+                    text=t("SPEECH_LAB_CFG_LABEL", value=f"{float(v):.1f}")
+                )
+            self.cfg_slider.configure(command=_on_cfg_change)
+            self.cfg_slider.pack()
+            self._make_tooltip(self.cfg_label,  t("SPEECH_LAB_TOOLTIP_CFG"))
+            self._make_tooltip(self.cfg_slider, t("SPEECH_LAB_TOOLTIP_CFG"))
+
+            steps_frame = ctk.CTkFrame(controls, fg_color="transparent")
+            steps_frame.pack(side="left", padx=15)
+            _steps_default = int(getattr(
+                self.settings, "inference_steps", 32 if _is_omni else 10,
+            ))
+            _steps_min = 4
+            _steps_max = 64 if _is_omni else 30
+            self.steps_label = ctk.CTkLabel(
+                steps_frame,
+                text=t("SPEECH_LAB_STEPS_LABEL", value=_steps_default),
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_secondary"],
+            )
+            self.steps_label.pack(anchor="w")
+            self.steps_slider = ctk.CTkSlider(
+                steps_frame,
+                from_=_steps_min,
+                to=_steps_max,
+                number_of_steps=_steps_max - _steps_min,
+                width=140,
+                progress_color=COLORS["accent"],
+                button_color=COLORS["accent_light"],
+            )
+            self.steps_slider.set(max(_steps_min, min(_steps_max, _steps_default)))
+
+            def _on_steps_change(v):
+                iv = int(round(float(v)))
+                self.settings.inference_steps = iv
+                self.steps_label.configure(text=t("SPEECH_LAB_STEPS_LABEL", value=iv))
+            self.steps_slider.configure(command=_on_steps_change)
+            self.steps_slider.pack()
+            self._make_tooltip(self.steps_label,  t("SPEECH_LAB_TOOLTIP_STEPS"))
+            self._make_tooltip(self.steps_slider, t("SPEECH_LAB_TOOLTIP_STEPS"))
 
         # ── Content Style dropdown ────────────────────────────────────────
         style_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -3203,7 +3277,8 @@ class KoKoFishUI:
                     reference_tokens=None,
                     prompt_text=profile["prompt_text"] if profile else None,
                     speed=self.speed_slider.get(),
-                    cadence=self.cad_slider.get() / 100.0,
+                    cfg_value=float(getattr(self.settings, "cfg_value", 2.0)),
+                    inference_timesteps=int(getattr(self.settings, "inference_steps", 32)),
                     output_path=out_path,
                     on_progress=_on_progress, on_chunk=_on_chunk,
                     on_complete=_on_complete, on_error=_on_error,
@@ -7448,7 +7523,12 @@ class KoKoFishUI:
             profile = self.voices.get_voice(voice_name)
 
         speed = self.speed_slider.get()
-        cadence = self.cad_slider.get() / 100.0  # 0.0–1.0
+        # Cadence only exists as a UI control for Kokoro; other engines
+        # ignore it. Fall back to the saved setting when the slider isn't present.
+        if hasattr(self, "cad_slider"):
+            cadence = self.cad_slider.get() / 100.0  # 0.0–1.0
+        else:
+            cadence = float(getattr(self.settings, "cadence", 50)) / 100.0
 
         # Compute a deterministic output path in our managed temp folder.
         os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
@@ -7623,7 +7703,8 @@ class KoKoFishUI:
                 reference_tokens=None,
                 prompt_text=profile["prompt_text"] if profile else None,
                 speed=speed,
-                cadence=cadence,
+                cfg_value=float(getattr(self.settings, "cfg_value", 2.0)),
+                inference_timesteps=int(getattr(self.settings, "inference_steps", 32)),
                 output_path=_output_path,
                 on_progress=on_progress,
                 on_chunk=on_chunk,
