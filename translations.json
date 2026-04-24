@@ -18356,6 +18356,27 @@
       "ar": "تم تعطيل torch.compile. أعد تشغيل التطبيق. ستُحمّل النماذج بسرعة لكنها ستعمل في وضع eager.",
       "hi": "torch.compile अक्षम। ऐप पुनः प्रारंभ करें। मॉडल जल्दी लोड होंगे लेकिन eager मोड में चलेंगे।",
       "sv": "torch.compile inaktiverat. Starta om appen. Modeller laddas snabbt men körs i eager-läge."
+    },
+    "VOICE_DESIGN_CONTROL_LABEL": {
+      "en": "Control Instruction (VoxCPM2 — optional)"
+    },
+    "VOICE_DESIGN_CONTROL_LABEL_DISABLED": {
+      "en": "Control Instruction (VoxCPM2 only — unavailable on 0.5B)"
+    },
+    "VOICE_DESIGN_CONTROL_PLACEHOLDER": {
+      "en": "A warm young woman, gentle and sweet, slightly slow"
+    },
+    "VOICE_DESIGN_CONTROL_HINT": {
+      "en": "Describe the target voice (age, gender, tone, pace, accent). Leave blank for a default voice. Chinese & English are supported."
+    },
+    "VOICE_DESIGN_APPLY_CHIPS": {
+      "en": "Apply →"
+    },
+    "SPEECH_LAB_PASTE_PLACEHOLDER": {
+      "en": "Paste or type text here, then click Add to Playlist…"
+    },
+    "SPEECH_LAB_BTN_ADD_TEXT": {
+      "en": "Add to Playlist"
     }
   }
 }

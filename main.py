@@ -37,6 +37,25 @@ except Exception:
 if not _compile_on:
     os.environ["TORCHDYNAMO_DISABLE"] = "1"
     os.environ["TORCH_COMPILE_DISABLE"] = "1"
+else:
+    # Serialize Inductor's worker pool so it spawns one compile subprocess
+    # at a time instead of flooding the screen with cmd windows.
+    os.environ.setdefault("TORCHINDUCTOR_COMPILE_THREADS", "1")
+    # On Windows, Inductor/Triton spawn cl.exe, ninja, and Python workers
+    # via subprocess.Popen — each flashes a console window. Monkey-patch
+    # Popen to inject CREATE_NO_WINDOW before torch is imported so every
+    # compile child inherits the hidden flag.
+    if sys.platform == "win32":
+        import subprocess as _sp
+        _CREATE_NO_WINDOW = 0x08000000
+        _orig_popen_init = _sp.Popen.__init__
+
+        def _hidden_popen_init(self, *args, **kwargs):
+            cf = kwargs.get("creationflags", 0) or 0
+            kwargs["creationflags"] = cf | _CREATE_NO_WINDOW
+            return _orig_popen_init(self, *args, **kwargs)
+
+        _sp.Popen.__init__ = _hidden_popen_init
 
 # ---------------------------------------------------------------------------
 # Logging setup — do this first before any other imports
@@ -608,7 +627,11 @@ class KoKoFishApp:
                 while True:
                     _s, _p = _splash_q.get_nowait()
                     splash_status.configure(text=_s)
-                    splash_progress.set(_p)
+                    try:
+                        if _p is not None:
+                            splash_progress.set(float(_p))
+                    except Exception:
+                        pass
                     main_root.update()
                     time.sleep(0.08)   # pause so each message is readable
             except _queue.Empty:

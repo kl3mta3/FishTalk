@@ -621,6 +621,49 @@ class KoKoFishUI:
         except Exception as e:
             logger.warning("Drag-and-drop not available: %s", e)
 
+        # Paste-text → playlist input
+        paste_frame = ctk.CTkFrame(top, fg_color="transparent")
+        paste_frame.pack(fill="x", pady=(0, 10))
+
+        self.tts_paste_textbox = ctk.CTkTextbox(
+            paste_frame,
+            height=70,
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            border_color=COLORS["border"],
+            border_width=1,
+            corner_radius=8,
+        )
+        self.tts_paste_textbox.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._tts_paste_placeholder = t("SPEECH_LAB_PASTE_PLACEHOLDER")
+        self.tts_paste_textbox.insert("1.0", self._tts_paste_placeholder)
+        self.tts_paste_textbox.configure(text_color=COLORS["text_muted"])
+
+        def _on_paste_focus_in(_e=None):
+            cur = self.tts_paste_textbox.get("1.0", "end").strip()
+            if cur == self._tts_paste_placeholder:
+                self.tts_paste_textbox.delete("1.0", "end")
+                self.tts_paste_textbox.configure(text_color=COLORS["text_primary"])
+
+        def _on_paste_focus_out(_e=None):
+            cur = self.tts_paste_textbox.get("1.0", "end").strip()
+            if not cur:
+                self.tts_paste_textbox.insert("1.0", self._tts_paste_placeholder)
+                self.tts_paste_textbox.configure(text_color=COLORS["text_muted"])
+
+        self.tts_paste_textbox.bind("<FocusIn>", _on_paste_focus_in)
+        self.tts_paste_textbox.bind("<FocusOut>", _on_paste_focus_out)
+
+        ctk.CTkButton(
+            paste_frame,
+            text=t("SPEECH_LAB_BTN_ADD_TEXT"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 12, "bold"),
+            height=70, width=140,
+            command=self._tts_add_pasted_text,
+        ).pack(side="left")
+
         # Controls row
         controls = ctk.CTkFrame(tab, fg_color="transparent")
         controls.pack(fill="x", padx=10, pady=5)
@@ -3351,6 +3394,9 @@ class KoKoFishUI:
         self._design_last_wav = None
         self._design_last_text = ""
 
+        engine = str(getattr(self.settings, "engine", "") or "").lower()
+        is_v2 = engine == "voxcpm_2b"
+
         wrap = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=8)
         wrap.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -3359,6 +3405,62 @@ class KoKoFishUI:
             font=(FONT_FAMILY, 12), text_color=COLORS["text_muted"],
             wraplength=760, justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
+
+        # Control Instruction — VoxCPM2 only.
+        _ctrl_label_text = t("VOICE_DESIGN_CONTROL_LABEL") if is_v2 \
+            else t("VOICE_DESIGN_CONTROL_LABEL_DISABLED")
+        ctk.CTkLabel(
+            wrap, text=_ctrl_label_text,
+            font=(FONT_FAMILY, 12, "bold"),
+            text_color=COLORS["text_primary"] if is_v2 else COLORS["text_muted"],
+        ).pack(anchor="w", padx=12, pady=(6, 2))
+        self._design_control_textbox = ctk.CTkTextbox(
+            wrap, height=60, fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"], border_color=COLORS["border"],
+            border_width=1, corner_radius=6,
+        )
+        self._design_control_textbox.pack(fill="x", padx=12, pady=(0, 4))
+        if is_v2:
+            self._design_control_textbox.insert("1.0", t("VOICE_DESIGN_CONTROL_PLACEHOLDER"))
+        else:
+            self._design_control_textbox.configure(state="disabled")
+        ctk.CTkLabel(
+            wrap, text=t("VOICE_DESIGN_CONTROL_HINT"),
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
+            wraplength=760, justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+
+        # Quick descriptor dropdowns that compile into the instruction textbox.
+        if is_v2:
+            chip_row = ctk.CTkFrame(wrap, fg_color="transparent")
+            chip_row.pack(fill="x", padx=12, pady=(0, 10))
+            self._design_age = ctk.StringVar(value="Any age")
+            self._design_gender = ctk.StringVar(value="Any gender")
+            self._design_tone = ctk.StringVar(value="Any tone")
+            self._design_pace = ctk.StringVar(value="Any pace")
+            _age_opts = ["Any age", "child", "teen", "young adult", "middle-aged", "elderly"]
+            _gender_opts = ["Any gender", "female", "male", "androgynous"]
+            _tone_opts = ["Any tone", "warm", "gentle", "cheerful", "melancholic",
+                          "dramatic", "calm", "authoritative", "playful", "nasal", "raspy"]
+            _pace_opts = ["Any pace", "slow", "relaxed", "natural", "fast-paced"]
+            for var, opts in (
+                (self._design_age, _age_opts), (self._design_gender, _gender_opts),
+                (self._design_tone, _tone_opts), (self._design_pace, _pace_opts),
+            ):
+                ctk.CTkOptionMenu(
+                    chip_row, variable=var, values=opts,
+                    fg_color=COLORS["bg_input"], button_color=COLORS["accent"],
+                    button_hover_color=COLORS["accent_hover"],
+                    dropdown_fg_color=COLORS["bg_card"],
+                    width=130, height=28,
+                ).pack(side="left", padx=(0, 6))
+            ctk.CTkButton(
+                chip_row, text=t("VOICE_DESIGN_APPLY_CHIPS"),
+                fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                border_color=COLORS["border"], border_width=1,
+                font=(FONT_FAMILY, 11), height=28, width=110,
+                command=self._voice_design_apply_chips,
+            ).pack(side="left", padx=(4, 0))
 
         ctk.CTkLabel(
             wrap, text=t("VOICE_DESIGN_SAMPLE_TEXT_LABEL"),
@@ -3418,9 +3520,8 @@ class KoKoFishUI:
         import tempfile as _tf
 
         if not getattr(self, "tts", None) or not self.tts.is_loaded:
-            messagebox.showwarning(
-                t("COMMON_ERROR"), t("VOICE_DESIGN_MSG_ENGINE_NOT_LOADED")
-            )
+            # Auto-load the engine, then re-invoke once ready.
+            self._ensure_tts_loaded(self._voice_design_generate)
             return
 
         text = self._design_textbox.get("1.0", "end").strip()
@@ -3464,14 +3565,44 @@ class KoKoFishUI:
                 messagebox.showerror(t("COMMON_ERROR"), str(exc))
             self.root.after(0, _ui)
 
+        instruction = ""
+        if getattr(self, "_design_control_textbox", None) is not None:
+            try:
+                instruction = self._design_control_textbox.get("1.0", "end").strip()
+                # Ignore the placeholder text if the user left it untouched.
+                if instruction == t("VOICE_DESIGN_CONTROL_PLACEHOLDER"):
+                    instruction = ""
+            except Exception:
+                instruction = ""
+
         self.tts.generate(
             text=text,
             reference_wav=None,
             prompt_text=None,
+            instruction=instruction or None,
             output_path=out_path,
             on_complete=on_complete,
             on_error=on_error,
         )
+
+    def _voice_design_apply_chips(self):
+        """Build a Control Instruction string from the Age/Gender/Tone/Pace dropdowns."""
+        parts = []
+        for var in ("_design_age", "_design_gender", "_design_tone", "_design_pace"):
+            v = getattr(self, var, None)
+            if v is None:
+                continue
+            val = v.get().strip()
+            if val and not val.lower().startswith("any "):
+                parts.append(val)
+        if not parts:
+            return
+        text = ", ".join(parts)
+        try:
+            self._design_control_textbox.delete("1.0", "end")
+            self._design_control_textbox.insert("1.0", text)
+        except Exception:
+            pass
 
     def _voice_design_save(self):
         """Save the last-generated design wav as a voice profile."""
@@ -5967,6 +6098,50 @@ class KoKoFishUI:
         )
         for path in paths:
             self._tts_add_file(path)
+
+    def _tts_add_pasted_text(self):
+        """Add pasted/typed text from the Speech Lab input box to the playlist."""
+        try:
+            text = self.tts_paste_textbox.get("1.0", "end").strip()
+        except Exception:
+            return
+        if not text or text == getattr(self, "_tts_paste_placeholder", ""):
+            return
+
+        words = text.split()
+        name = " ".join(words[:6])
+        if len(words) > 6:
+            name += "…"
+        if len(name) > 60:
+            name = name[:57] + "…"
+        if not name:
+            name = "Pasted text"
+
+        if self._playlist_items:
+            default_voice = self._playlist_items[-1].get("voice", self.tts_voice_var.get())
+        else:
+            default_voice = self.tts_voice_var.get()
+
+        item = {
+            "name": name,
+            "text": text,
+            "path": None,
+            "selected": True,
+            "voice": default_voice,
+            "blend_voice": "",
+            "blend_ratio": 0.5,
+            "assisted_flow": False,
+            "translate": False,
+            "translate_lang": "",
+            "translate_tone": "Natural",
+        }
+        self._playlist_items.append(item)
+        self._rebuild_playlist_ui()
+
+        self.tts_paste_textbox.delete("1.0", "end")
+        self.tts_paste_textbox.insert("1.0", self._tts_paste_placeholder)
+        self.tts_paste_textbox.configure(text_color=COLORS["text_muted"])
+        logger.info("Added pasted text to playlist: %r (%d chars)", name, len(text))
 
     def _tts_add_file(self, path: str):
         """Add a file to the playlist."""

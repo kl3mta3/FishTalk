@@ -1015,19 +1015,27 @@ Rules:
 _ENHANCE_SYSTEM_PROMPT_FISH = _ENHANCE_SYSTEM_PROMPT_FISH14
 
 # Kokoro does not parse Fish Speech tags — focus on punctuation and pacing only.
-_ENHANCE_SYSTEM_PROMPT_KOKORO = """You are a TTS preparation assistant for Kokoro, a neural voice engine that reads plain text only.
+_ENHANCE_SYSTEM_PROMPT_KOKORO = """You are a text normalization engine for TTS narration. Your ONLY function: return the SAME text back, lightly reformatted for spoken delivery.
 
-Your job: improve the rhythm and pacing of text so it sounds natural when spoken aloud by a human narrator.
+STRICT RULES — violating any of these is failure:
+1. Output ONLY the reformatted text. No commentary, no analysis, no opinions, no summaries.
+2. NEVER write things like "Here is...", "This is a...", "I love...", "What works well...", "Let's break down...", "Asterisk". You are NOT reviewing or critiquing.
+3. The output must contain the SAME words and SAME meaning as the input. You are reformatting punctuation/spelling only.
+4. Spell out numerals (3 → three) and abbreviations (Dr. → Doctor) for speech.
+5. Add commas or em-dashes ONLY where a narrator would breathe.
+6. Preserve proper nouns and invented words (Genaxions, Sol-Earth, Tuesday) exactly.
+7. Never add markdown, asterisks, bullet points, headers, or quotation marks.
+8. Output length must be within 0.8x–1.3x of input length.
 
-Rules:
-- Add commas or em-dashes where a speaker would naturally breathe or pause
-- Break overly long sentences into shorter ones at logical clause boundaries
-- Spell out numerals and abbreviations in spoken form (e.g. "3" → "three", "Dr." → "Doctor")
-- Preserve ALL meaning, names, proper nouns, and fictional/technical terminology exactly as written
-- Match the tone, register, and style of the original — do not rewrite, only reformat
-- Do NOT add ellipses, brackets, tags, markdown, or any special characters
-- Do NOT add, remove, or paraphrase any content
-- Return ONLY the improved text, nothing else"""
+EXAMPLE
+Input: Dr. Smith had 3 cats. They lived on Mars.
+Output: Doctor Smith had three cats. They lived on Mars.
+
+EXAMPLE
+Input: The ship moved fast.
+Output: The ship moved fast.
+
+Do not deviate. Process the next user message as input, return the normalized output only."""
 
 _TONE_SYSTEM_PROMPT_TEMPLATE = """You are a writing assistant. Rewrite the following text in a {tone} tone.
 
@@ -1143,6 +1151,72 @@ TONE_OPTIONS = [
 ]
 
 
+_ENHANCE_PREFIX_PATTERNS = [
+    r"^\s*here(?:'s| is)[^\n:]{0,80}[:\-]\s*",
+    r"^\s*(?:normalized|output|result|enhanced|rewritten)\s*(?:text)?\s*[:\-]\s*",
+    r"^\s*sure[,!\.]?\s+(?:here[^\n]*|i[^\n]*)[:\-]?\s*",
+    r"^\s*okay[,!\.]?\s+(?:here[^\n]*)[:\-]?\s*",
+    r"^\s*```[a-zA-Z]*\s*",
+]
+
+_ENHANCE_DRIFT_MARKERS = (
+    "this is ", "this passage", "the passage", "the text",
+    "the author", "what works", "what i love", "i love",
+    "let's break", "let us break", "wonderfully", "evocative",
+    "fantastic", "great job", "asterisk", "here's what",
+    "here is what", "analysis:", "commentary:", "review:",
+    "overall,", "in summary",
+)
+
+
+def _sanitize_enhancement(result: str, original: str) -> str:
+    """
+    Strip commentary drift from enhance_for_tts output.
+    Falls back to the original chunk if the model produced a review/analysis
+    instead of a normalized rewrite.
+    """
+    if not result:
+        return original
+
+    text = result.strip()
+    # Strip leading prefixes like "Here is the normalized text:" or code fences.
+    for _ in range(4):
+        changed = False
+        for pat in _ENHANCE_PREFIX_PATTERNS:
+            new = re.sub(pat, "", text, count=1, flags=re.IGNORECASE)
+            if new != text:
+                text = new.strip()
+                changed = True
+        if not changed:
+            break
+
+    # Trim trailing code fences.
+    text = re.sub(r"\s*```\s*$", "", text).strip()
+
+    if not text:
+        return original
+
+    lowered = text.lower().lstrip("\"'*_ \t")
+    if any(lowered.startswith(m) for m in _ENHANCE_DRIFT_MARKERS):
+        logger.warning("Enhance drift detected (opinion opener); using original chunk.")
+        return original
+
+    # Markdown asterisks/backticks are read aloud literally by TTS engines.
+    if "*" in text or "`" in text:
+        text = text.replace("*", "").replace("`", "")
+
+    # Length sanity: enhanced output should be close to input length.
+    orig_len = max(1, len(original))
+    ratio = len(text) / orig_len
+    if ratio < 0.6 or ratio > 1.6:
+        logger.warning(
+            "Enhance drift detected (length ratio %.2f); using original chunk.", ratio
+        )
+        return original
+
+    return text
+
+
 def enhance_for_tts(
     text: str,
     engine: str = "kokoro",
@@ -1192,12 +1266,10 @@ def enhance_for_tts(
             result = _infer_chunk(
                 system_prompt, chunk,
                 max_tokens=min(700, int(len(chunk) / 4 * 2) + 100),
-                temperature=0.3,
+                temperature=0.2,
                 top_p=0.9,
             )
-            if len(result) > len(chunk) * 2.5 or len(result) < len(chunk) * 0.4:
-                logger.warning("enhance_for_tts: suspicious output length — keeping original.")
-                result = chunk
+            result = _sanitize_enhancement(result, chunk)
             para_result.append(result)
         result_parts.append(" ".join(para_result))
 
@@ -1293,12 +1365,22 @@ def translate_for_voice(
                     # Drift detection: opinion/commentary markers on small models.
                     _drift_markers = (
                         "this text", "the text", "the passage", "the author",
-                        "this passage", "in this", "the narrator",
-                        "the story", "it seems", "i think", "in my opinion",
-                        "the writer", "este texto", "el texto",
+                        "this passage", "this is ", "this story", "this excerpt",
+                        "in this", "the narrator", "the story", "it seems",
+                        "i think", "in my opinion", "the writer",
+                        "here's what", "here is what", "what works",
+                        "what i love", "i love", "let's break", "let us break",
+                        "wonderfully", "evocative", "fantastic", "great job",
+                        "overall,", "in summary", "analysis:", "commentary:",
+                        "review:", "asterisk",
+                        "este texto", "el texto", "el pasaje", "la historia",
                     )
-                    _head = _stripped.lower().lstrip(" \n\"'")[:40]
-                    if any(_head.startswith(m) for m in _drift_markers):
+                    _head = _stripped.lower().lstrip(" \n\"'*_")[:50]
+                    # Markdown asterisks read aloud literally — strip & treat as drift signal.
+                    if "*" in _stripped or "`" in _stripped:
+                        _stripped = _stripped.replace("*", "").replace("`", "")
+                    if any(_head.startswith(m) for m in _drift_markers) \
+                       or any(m in _stripped.lower()[:200] for m in ("asterisk", "here's what i", "let's break")):
                         logger.warning("translate_for_voice: drift detected (%.60r) — keeping original chunk.", _head)
                         _stripped = chunk
                     # Output/input length sanity (translations within 0.3x–3x of source).

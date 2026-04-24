@@ -117,7 +117,7 @@ class OmniVoiceEngine:
                                 and cuda_available and hasattr(torch, "compile"):
                             logger.info("OmniVoice: applying torch.compile (first run will be slow).")
                             self._model = torch.compile(
-                                self._model, mode="reduce-overhead",
+                                self._model, mode="default",
                                 dynamic=True, fullgraph=False,
                             )
                     except Exception as _ce:

@@ -102,7 +102,7 @@ class VoxCPMEngine:
                     if inner is not None and hasattr(torch, "compile"):
                         logger.info("VoxCPM: applying torch.compile to inner model (first run will be slow).")
                         compiled = torch.compile(
-                            inner, mode="reduce-overhead", dynamic=True, fullgraph=False,
+                            inner, mode="default", dynamic=True, fullgraph=False,
                         )
                         # Replace in-place on whichever attribute held the module.
                         if getattr(self._model, "llm", None) is not None:
@@ -172,6 +172,9 @@ class VoxCPMEngine:
         speed: float = 1.0,
         cadence: float = 0.0,
         output_path: Optional[str] = None,
+        instruction: Optional[str] = None,
+        cfg_value: float = 2.0,
+        inference_timesteps: int = 10,
         on_progress: Optional[Callable[[str, float], None]] = None,
         on_chunk: Optional[Callable] = None,
         on_complete: Optional[Callable[[str], None]] = None,
@@ -216,17 +219,30 @@ class VoxCPMEngine:
 
                 text_norm = normalize_text(text, engine="voxcpm")
 
+                # VoxCPM2 Control Instruction is passed as a parenthetical
+                # prefix on the `text` kwarg; no separate argument exists.
+                # Only supported on the 2B variant — silently ignored on 0.5B.
+                is_v2 = self.variant == "2B"
+                if instruction and instruction.strip():
+                    if is_v2:
+                        _ins = instruction.strip().strip("()")
+                        text_norm = f"({_ins}) {text_norm}"
+                        logger.info("VoxCPM2 control instruction applied: %r", _ins[:80])
+                    else:
+                        logger.warning(
+                            "VoxCPM 0.5B does not support Control Instruction — ignoring."
+                        )
+
                 if on_progress:
                     on_progress("Generating speech…", 0.3)
 
                 gen_kwargs = dict(
                     text=text_norm,
-                    cfg_value=2.0,
-                    inference_timesteps=10,
+                    cfg_value=float(cfg_value),
+                    inference_timesteps=int(inference_timesteps),
                 )
 
                 has_ref = reference_wav and os.path.isfile(reference_wav)
-                is_v2 = self.variant == "2B"
                 if has_ref and prompt_text:
                     logger.info("VoxCPM cloning (prompt mode): ref=%s", reference_wav)
                     gen_kwargs["prompt_wav_path"] = reference_wav
