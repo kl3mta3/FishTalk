@@ -8426,9 +8426,9 @@ class KoKoFishUI:
         if new_engine == prev_engine:
             return
 
-        # Save engine choice immediately
-        self.settings.engine = new_engine
-        self.settings.save()
+        def _commit():
+            self.settings.engine = new_engine
+            self.settings.save()
 
         def _revert():
             self.settings.engine = prev_engine
@@ -8444,6 +8444,7 @@ class KoKoFishUI:
                 t("SETTINGS_RESTART_REQUIRED_BODY", engine=new_val),
             )
             if confirm:
+                _commit()
                 self._restart_app()
             else:
                 self._update_engine_dropdown()
@@ -8456,6 +8457,7 @@ class KoKoFishUI:
                     logger.warning("Engine install failed: %s", exc)
                     ok = False
                 if ok:
+                    _commit()
                     self.root.after(0, lambda: self.update_tts_status(
                         ready_msg, COLORS["success"]
                     ))
